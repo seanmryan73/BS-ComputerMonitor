@@ -36,15 +36,16 @@ pub struct Theme {
 impl Default for Theme {
     fn default() -> Self {
         Self {
-            bg: Color32::from_rgb(7, 13, 18),
-            card_bg: Color32::from_rgb(11, 28, 36),
-            card_border: Color32::from_rgb(26, 58, 74),
-            titlebar_bg: Color32::from_rgb(5, 10, 14),
-            hover_bg: Color32::from_rgb(18, 42, 55),
+            // BagPipes Black — same base as BS-VChanger-Rust default theme
+            bg: Color32::from_rgb(0x08, 0x08, 0x08),
+            card_bg: Color32::from_rgb(0x13, 0x13, 0x13),
+            card_border: Color32::from_rgb(0x22, 0x22, 0x22),
+            titlebar_bg: Color32::from_rgb(0x05, 0x05, 0x05),
+            hover_bg: Color32::from_rgb(0x1c, 0x1c, 0x1c),
 
-            text_primary: Color32::from_rgb(232, 248, 252),
-            text_subtle: Color32::from_rgb(126, 168, 178),
-            text_dim: Color32::from_rgb(65, 100, 115),
+            text_primary: Color32::from_rgb(0xf0, 0xf0, 0xf0),
+            text_subtle: Color32::from_rgb(0x60, 0x60, 0x60),
+            text_dim: Color32::from_rgb(0x30, 0x30, 0x30),
 
             accent_cpu: Color32::from_rgb(85, 222, 255),
             accent_mem: Color32::from_rgb(240, 160, 80),

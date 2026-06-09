@@ -13,7 +13,7 @@ fn main() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("BS Computer Monitor")
-            .with_inner_size([500.0, 620.0])
+            .with_inner_size([700.0, 800.0])
             .with_min_inner_size([500.0, 600.0])
             .with_decorations(false)
             .with_transparent(false),

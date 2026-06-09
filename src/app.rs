@@ -22,6 +22,8 @@ pub struct MonitorApp {
     pub hist_tx: MetricHistory,
     pub hist_gpu: MetricHistory,
     pub hist_fps: MetricHistory,
+    pub hist_temp_cpu: MetricHistory,
+    pub hist_temp_gpu: MetricHistory,
 }
 
 impl MonitorApp {
@@ -45,6 +47,8 @@ impl MonitorApp {
             hist_tx: MetricHistory::new(HISTORY_LEN),
             hist_gpu: MetricHistory::new(HISTORY_LEN),
             hist_fps: MetricHistory::new(HISTORY_LEN),
+            hist_temp_cpu: MetricHistory::new(HISTORY_LEN),
+            hist_temp_gpu: MetricHistory::new(HISTORY_LEN),
         }
     }
 
@@ -58,6 +62,12 @@ impl MonitorApp {
         }
         if fps_snap.active {
             self.hist_fps.push(fps_snap.fps);
+        }
+        if let Some(t) = snap.temps.cpu_celsius {
+            self.hist_temp_cpu.push(t);
+        }
+        if let Some(t) = snap.temps.gpu_celsius {
+            self.hist_temp_gpu.push(t);
         }
     }
 }
