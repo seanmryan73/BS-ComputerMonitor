@@ -6,13 +6,14 @@ mod widgets;
 
 use egui::{CentralPanel, Context, Frame, TopBottomPanel};
 
-use crate::{app::MonitorApp, models::SystemSnapshot};
+use crate::{app::MonitorApp, models::{FpsSnapshot, SystemSnapshot}};
 
 pub fn draw(
     app: &mut MonitorApp,
     ctx: &Context,
     _frame: &mut eframe::Frame,
     snap: &SystemSnapshot,
+    fps: &FpsSnapshot,
 ) {
     let tb_bg = app.theme.titlebar_bg;
     let bg = app.theme.bg;
@@ -27,6 +28,6 @@ pub fn draw(
     CentralPanel::default()
         .frame(Frame::none().fill(bg).inner_margin(egui::Margin::same(12.0)))
         .show(ctx, |ui| {
-            cards::show_grid(app, ui, snap);
+            cards::show_grid(app, ui, snap, fps);
         });
 }

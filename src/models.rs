@@ -105,6 +105,18 @@ pub struct NetInterface {
     pub tx_bps: u64,
 }
 
+// ── FPS ───────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Default)]
+pub struct FpsSnapshot {
+    /// Frames per second measured over the last ~1 second window.
+    pub fps: f32,
+    /// Title of the foreground window being captured.
+    pub window_title: String,
+    /// True when a capture session is actively running.
+    pub active: bool,
+}
+
 // ── Temperatures ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Default)]

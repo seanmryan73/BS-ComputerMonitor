@@ -227,6 +227,7 @@ dependencies = [
  "serde_json",
  "sysinfo",
  "thiserror 1.0.69",
+ "windows 0.57.0",
  "wmi",
 ]
 

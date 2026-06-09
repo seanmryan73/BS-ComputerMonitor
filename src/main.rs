@@ -2,6 +2,7 @@
 
 mod app;
 mod collector;
+mod fps_collector;
 mod models;
 mod theme;
 mod ui;

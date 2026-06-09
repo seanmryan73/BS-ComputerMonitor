@@ -4,7 +4,7 @@ use egui::{Grid, ScrollArea, Ui, Vec2};
 
 use crate::{
     app::MonitorApp,
-    models::{fmt_bytes, fmt_bps, SystemSnapshot},
+    models::{fmt_bytes, fmt_bps, FpsSnapshot, SystemSnapshot},
     theme::Theme,
 };
 
@@ -12,7 +12,7 @@ use super::widgets::{bar, big_value, card_frame, card_title, mini_bar, sparkline
 
 // ── Grid ──────────────────────────────────────────────────────────────────────
 
-pub fn show_grid(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
+pub fn show_grid(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot, fps: &FpsSnapshot) {
     let available_w = ui.available_width();
     let cols: usize = if available_w >= 760.0 { 2 } else { 1 };
     let card_w = (available_w - (cols as f32 - 1.0) * 8.0) / cols as f32;
@@ -21,6 +21,7 @@ pub fn show_grid(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
         ui.horizontal_wrapped(|ui| {
             ui.allocate_ui(Vec2::new(card_w, 0.0), |ui| cpu_card(app, ui, snap));
             ui.allocate_ui(Vec2::new(card_w, 0.0), |ui| memory_card(app, ui, snap));
+            ui.allocate_ui(Vec2::new(card_w, 0.0), |ui| fps_card(app, ui, fps));
             ui.allocate_ui(Vec2::new(card_w, 0.0), |ui| gpu_card(app, ui, snap));
             ui.allocate_ui(Vec2::new(card_w, 0.0), |ui| network_card(app, ui, snap));
             ui.allocate_ui(Vec2::new(card_w, 0.0), |ui| disk_card(app, ui, snap));
@@ -286,6 +287,70 @@ fn network_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
                 &format!("↑{} ↓{}", fmt_bps(iface.tx_bps), fmt_bps(iface.rx_bps)),
                 text_subtle,
                 app.theme.text_primary,
+            );
+        }
+    });
+}
+
+// ── FPS ───────────────────────────────────────────────────────────────────────
+
+fn fps_card(app: &mut MonitorApp, ui: &mut Ui, fps: &FpsSnapshot) {
+    let accent = app.theme.accent_net; // green — matches "go fast"
+    let text_subtle = app.theme.text_subtle;
+    let text_dim = app.theme.text_dim;
+    let text_primary = app.theme.text_primary;
+
+    card_frame(&app.theme).show(ui, |ui| {
+        card_title(ui, "FPS", accent);
+
+        if !fps.active {
+            ui.label(
+                egui::RichText::new("Waiting for foreground window…")
+                    .color(text_dim)
+                    .size(11.0),
+            );
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("Switch to a game or any DirectX app.")
+                    .color(text_dim)
+                    .size(10.0),
+            );
+            return;
+        }
+
+        let val_color = if fps.fps >= 60.0 {
+            app.theme.ok
+        } else if fps.fps >= 30.0 {
+            app.theme.warn
+        } else {
+            app.theme.crit
+        };
+
+        big_value(ui, &format!("{:.0}", fps.fps), val_color);
+        ui.label(egui::RichText::new("frames / sec").color(text_subtle).size(10.0));
+        ui.add_space(8.0);
+
+        if !app.hist_fps.data.is_empty() {
+            sparkline(ui, "spark_fps", &app.hist_fps.as_vec(), accent, 40.0);
+        }
+
+        ui.add_space(4.0);
+        stat_row(
+            ui,
+            "Window",
+            &truncate(&fps.window_title, 28),
+            text_subtle,
+            text_primary,
+        );
+
+        // Frame time is the inverse of FPS — useful for gamers.
+        if fps.fps > 0.0 {
+            stat_row(
+                ui,
+                "Frame time",
+                &format!("{:.1} ms", 1000.0 / fps.fps),
+                text_subtle,
+                text_primary,
             );
         }
     });
