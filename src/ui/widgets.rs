@@ -129,6 +129,30 @@ pub fn spectrum_bars(
         }
     }
 
+    // Live value line — horizontal rule at the level of the most recent sample.
+    // Animates smoothly because hist is a lerped display buffer.
+    if let Some(&last) = hist.last() {
+        let norm = (last as f32 / max_val).clamp(0.0, 1.0);
+        if norm > 0.02 {
+            let y = split_y - norm * bar_h_range;
+            let lc = color_fn(norm, accent);
+            // Dim rule across full width
+            painter.line_segment(
+                [egui::pos2(rect.min.x, y), egui::pos2(rect.max.x, y)],
+                Stroke::new(0.75, Color32::from_rgba_unmultiplied(lc.r(), lc.g(), lc.b(), 55)),
+            );
+            // Bright notch on the right edge — "needle" indicator
+            painter.rect_filled(
+                Rect::from_min_size(
+                    egui::pos2(rect.max.x - 4.0, y - 1.5),
+                    Vec2::new(4.0, 3.0),
+                ),
+                1.0,
+                Color32::from_rgba_unmultiplied(lc.r(), lc.g(), lc.b(), 200),
+            );
+        }
+    }
+
     // Floor separator line (accent-tinted)
     painter.line_segment(
         [egui::pos2(rect.min.x, split_y), egui::pos2(rect.max.x, split_y)],

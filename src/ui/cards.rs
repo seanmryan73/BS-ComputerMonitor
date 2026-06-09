@@ -75,12 +75,10 @@ fn cpu_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
     let val_color = app.theme.health_color(pct, 60.0, 85.0);
     let subtle = app.theme.text_subtle;
     let dim = app.theme.text_dim;
-    let hist = app.hist_cpu.as_vec();
-
     compact_card_frame(&app.theme).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 3.0;
         card_hdr(ui, "CPU", &snap.cpu.brand, &format!("{pct:.0}%"), accent, val_color, subtle);
-        spectrum_bars(ui, &hist, 100.0, accent, SPEC_H, vu_color);
+        spectrum_bars(ui, &app.disp_cpu, 100.0, accent, SPEC_H, vu_color);
         stat_line(
             ui,
             &format!("{} cores  ·  {} MHz", snap.cpu.logical_cores, snap.cpu.frequency_mhz),
@@ -99,8 +97,6 @@ fn memory_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
     let val_color = app.theme.health_color(pct, 70.0, 90.0);
     let subtle = app.theme.text_subtle;
     let dim = app.theme.text_dim;
-    let hist = app.hist_mem.as_vec();
-
     compact_card_frame(&app.theme).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 3.0;
         card_hdr(
@@ -112,7 +108,7 @@ fn memory_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
             val_color,
             subtle,
         );
-        spectrum_bars(ui, &hist, 100.0, accent, SPEC_H, vu_color);
+        spectrum_bars(ui, &app.disp_mem, 100.0, accent, SPEC_H, vu_color);
         stat_line(
             ui,
             &format!("{} used", fmt_bytes(snap.memory.used_bytes)),
@@ -151,7 +147,6 @@ fn fps_card(app: &mut MonitorApp, ui: &mut Ui, fps: &FpsSnapshot) {
             app.theme.crit
         };
 
-        let hist = app.hist_fps.as_vec();
         let value_str = format!("{:.0} fps", fps.fps);
         let ft = if fps.fps > 0.0 {
             format!("{:.1} ms", 1000.0 / fps.fps)
@@ -161,7 +156,7 @@ fn fps_card(app: &mut MonitorApp, ui: &mut Ui, fps: &FpsSnapshot) {
 
         card_hdr(ui, "FPS", &truncate(&fps.window_title, 22), &value_str, accent, val_color, subtle);
         // fps_color: tall bar = high fps = green (inverted VU); 120 fps = full height
-        spectrum_bars(ui, &hist, 120.0, accent, SPEC_H, fps_color);
+        spectrum_bars(ui, &app.disp_fps, 120.0, accent, SPEC_H, fps_color);
         stat_line(ui, &truncate(&fps.window_title, 28), &ft, dim, subtle);
     });
 }
@@ -189,10 +184,8 @@ fn gpu_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
             .utilization_percent
             .map(|p| format!("{p:.0}%"))
             .unwrap_or_else(|| "N/A".into());
-        let hist = app.hist_gpu.as_vec();
-
         card_hdr(ui, "GPU", &snap.gpu.name, &value_str, accent, val_color, subtle);
-        spectrum_bars(ui, &hist, 100.0, accent, SPEC_H, vu_color);
+        spectrum_bars(ui, &app.disp_gpu, 100.0, accent, SPEC_H, vu_color);
 
         let vram_str = if snap.gpu.vram_total_bytes > 0 {
             format!(
@@ -227,10 +220,9 @@ fn network_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
     let subtle = app.theme.text_subtle;
     let dim = app.theme.text_dim;
 
-    let tx_hist = app.hist_tx.as_vec();
-    let rx_hist = app.hist_rx.as_vec();
-    let tx_max = tx_hist.iter().cloned().fold(8_000.0f64, f64::max) as f32;
-    let rx_max = rx_hist.iter().cloned().fold(8_000.0f64, f64::max) as f32;
+    // Use raw history for peak scaling (not lerped values) so scale is accurate
+    let tx_max = app.hist_tx.as_vec().iter().cloned().fold(8_000.0f64, f64::max) as f32;
+    let rx_max = app.hist_rx.as_vec().iter().cloned().fold(8_000.0f64, f64::max) as f32;
 
     compact_card_frame(&app.theme).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 3.0;
@@ -269,9 +261,11 @@ fn network_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
         });
 
         // Two spectrum panels side by side
+        let disp_tx = app.disp_tx.clone();
+        let disp_rx = app.disp_rx.clone();
         ui.columns(2, |cols| {
-            spectrum_bars(&mut cols[0], &tx_hist, tx_max, acc_tx, SPEC_H_2COL, vu_color);
-            spectrum_bars(&mut cols[1], &rx_hist, rx_max, acc_rx, SPEC_H_2COL, vu_color);
+            spectrum_bars(&mut cols[0], &disp_tx, tx_max, acc_tx, SPEC_H_2COL, vu_color);
+            spectrum_bars(&mut cols[1], &disp_rx, rx_max, acc_rx, SPEC_H_2COL, vu_color);
         });
 
         stat_line(ui, "peak TX", &fmt_bps(tx_max as u64), dim, subtle);
@@ -397,9 +391,6 @@ fn temps_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
             return;
         }
 
-        let cpu_hist = app.hist_temp_cpu.as_vec();
-        let gpu_hist = app.hist_temp_gpu.as_vec();
-
         // Sub-labels
         ui.horizontal(|ui| {
             let half = ui.available_width() / 2.0;
@@ -408,14 +399,16 @@ fn temps_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
             ui.label(egui::RichText::new("GPU °C").color(app.theme.accent_gpu).size(9.5));
         });
 
+        let cpu_disp = app.disp_temp_cpu.clone();
+        let gpu_disp = app.disp_temp_gpu.clone();
+        let cpu_col = app.theme.accent_cpu;
+        let gpu_col = app.theme.accent_gpu;
         ui.columns(2, |cols| {
-            let cpu_col = app.theme.accent_cpu;
-            let gpu_col = app.theme.accent_gpu;
-            if !cpu_hist.is_empty() {
-                spectrum_bars(&mut cols[0], &cpu_hist, 100.0, cpu_col, SPEC_H_2COL, vu_color);
+            if !cpu_disp.is_empty() {
+                spectrum_bars(&mut cols[0], &cpu_disp, 100.0, cpu_col, SPEC_H_2COL, vu_color);
             }
-            if !gpu_hist.is_empty() {
-                spectrum_bars(&mut cols[1], &gpu_hist, 100.0, gpu_col, SPEC_H_2COL, vu_color);
+            if !gpu_disp.is_empty() {
+                spectrum_bars(&mut cols[1], &gpu_disp, 100.0, gpu_col, SPEC_H_2COL, vu_color);
             }
         });
     });

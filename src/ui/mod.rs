@@ -38,6 +38,29 @@ pub fn draw(
     // The title bar (top 36 px) is excluded; N/NE/NW are skipped to avoid
     // conflicting with the title-bar drag region.
     resize_handles(ctx, &app.theme);
+
+    // CRT scanline overlay — subtle horizontal dark rules every 2.5 px.
+    scanline_overlay(ctx);
+}
+
+fn scanline_overlay(ctx: &Context) {
+    Area::new(Id::new("scanlines"))
+        .fixed_pos(egui::pos2(0.0, 0.0))
+        .order(Order::Foreground)
+        .interactable(false)
+        .show(ctx, |ui| {
+            let rect = ctx.screen_rect();
+            let painter = ui.painter();
+            let line = Color32::from_rgba_unmultiplied(0, 0, 0, 18);
+            let mut y = rect.min.y;
+            while y < rect.max.y {
+                painter.line_segment(
+                    [egui::pos2(rect.min.x, y), egui::pos2(rect.max.x, y)],
+                    Stroke::new(0.5, line),
+                );
+                y += 2.5;
+            }
+        });
 }
 
 fn resize_handles(ctx: &Context, theme: &crate::theme::Theme) {
