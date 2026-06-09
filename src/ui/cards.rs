@@ -1,6 +1,14 @@
-//! All metric cards and the responsive grid layout.
+//! Compact single-column metric cards for the 500×600 window.
+//!
+//! Visual anatomy of each card:
+//!   ─ header row  (accent pip · metric name · subtitle · value)
+//!   ─ dot gauge + inline sparkline
+//!   ─ gradient bar
+//!   ─ stats line
+//!
+//! All 7 cards fit on screen at the 500×600 minimum without scrolling.
 
-use egui::{Grid, ScrollArea, Ui, Vec2};
+use egui::{Align, Color32, Layout, Rounding, Sense, Vec2};
 
 use crate::{
     app::MonitorApp,
@@ -8,24 +16,79 @@ use crate::{
     theme::Theme,
 };
 
-use super::widgets::{bar, big_value, card_frame, card_title, mini_bar, sparkline, stat_row};
+use super::widgets::{
+    compact_card_frame, gradient_bar, layered_dots, mini_sparkline_raw,
+};
 
-// ── Grid ──────────────────────────────────────────────────────────────────────
+// ── Grid entry point ──────────────────────────────────────────────────────────
 
 pub fn show_grid(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot, fps: &FpsSnapshot) {
-    let available_w = ui.available_width();
-    let cols: usize = if available_w >= 760.0 { 2 } else { 1 };
-    let card_w = (available_w - (cols as f32 - 1.0) * 8.0) / cols as f32;
+    ui.spacing_mut().item_spacing.y = 4.0;
+    cpu_card(app, ui, snap);
+    memory_card(app, ui, snap);
+    fps_card(app, ui, fps);
+    gpu_card(app, ui, snap);
+    network_card(app, ui, snap);
+    disk_card(app, ui, snap);
+    temps_card(app, ui, snap);
+}
 
-    ScrollArea::vertical().show(ui, |ui| {
-        ui.horizontal_wrapped(|ui| {
-            ui.allocate_ui(Vec2::new(card_w, 0.0), |ui| cpu_card(app, ui, snap));
-            ui.allocate_ui(Vec2::new(card_w, 0.0), |ui| memory_card(app, ui, snap));
-            ui.allocate_ui(Vec2::new(card_w, 0.0), |ui| fps_card(app, ui, fps));
-            ui.allocate_ui(Vec2::new(card_w, 0.0), |ui| gpu_card(app, ui, snap));
-            ui.allocate_ui(Vec2::new(card_w, 0.0), |ui| network_card(app, ui, snap));
-            ui.allocate_ui(Vec2::new(card_w, 0.0), |ui| disk_card(app, ui, snap));
-            ui.allocate_ui(Vec2::new(card_w, 0.0), |ui| temps_card(app, ui, snap));
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
+/// Compact card header: [pip] LABEL  subtitle  ···  VALUE
+fn card_hdr(
+    ui: &mut Ui,
+    label: &str,
+    subtitle: &str,
+    value: &str,
+    accent: Color32,
+    val_color: Color32,
+    text_subtle: Color32,
+) {
+    ui.horizontal(|ui| {
+        let (r, _) = ui.allocate_exact_size(Vec2::new(3.0, 14.0), Sense::hover());
+        ui.painter().rect_filled(r, Rounding::same(1.5), accent);
+        ui.add_space(5.0);
+        ui.label(egui::RichText::new(label).color(accent).size(11.5).strong());
+        if !subtitle.is_empty() {
+            ui.label(egui::RichText::new(truncate(subtitle, 20)).color(text_subtle).size(9.5));
+        }
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.label(
+                egui::RichText::new(value)
+                    .color(val_color)
+                    .monospace()
+                    .size(13.5)
+                    .strong(),
+            );
+        });
+    });
+}
+
+/// Dot gauge on the left + painter sparkline on the right, in a single row.
+fn dots_spark(ui: &mut Ui, pct: f32, color: Color32, hist: &[f64]) {
+    const SPARK_W: f32 = 65.0;
+    const ROW_H: f32 = 14.0;
+    let bg = Color32::from_rgba_unmultiplied(0, 0, 0, 55);
+
+    ui.horizontal(|ui| {
+        let dots_w = (ui.available_width() - SPARK_W - 5.0).max(20.0);
+        ui.allocate_ui(Vec2::new(dots_w, ROW_H), |ui| {
+            layered_dots(ui, pct, color, 4.0);
+        });
+        ui.add_space(5.0);
+        let (rect, _) = ui.allocate_exact_size(Vec2::new(SPARK_W, ROW_H), Sense::hover());
+        ui.painter().rect_filled(rect, Rounding::same(2.0), bg);
+        mini_sparkline_raw(ui.painter(), rect, hist, color);
+    });
+}
+
+/// Stat text line — muted label on the left, monospace value on the right.
+fn stat_line(ui: &mut Ui, left: &str, right: &str, dim: Color32, accent: Color32) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(left).color(dim).size(10.0));
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.label(egui::RichText::new(right).color(accent).monospace().size(10.0));
         });
     });
 }
@@ -34,70 +97,24 @@ pub fn show_grid(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot, fps: 
 
 fn cpu_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
     let accent = app.theme.accent_cpu;
-    let track = Theme::dim(accent);
     let pct = snap.cpu.total_usage;
     let val_color = app.theme.health_color(pct, 60.0, 85.0);
-    let text_subtle = app.theme.text_subtle;
-    let text_primary = app.theme.text_primary;
-    let text_dim = app.theme.text_dim;
-    let bar_rounding = app.theme.bar_rounding;
+    let subtle = app.theme.text_subtle;
+    let dim = app.theme.text_dim;
 
-    card_frame(&app.theme).show(ui, |ui| {
-        card_title(ui, "CPU", accent);
+    compact_card_frame(&app.theme).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 3.0;
 
-        ui.horizontal(|ui| {
-            big_value(ui, &format!("{pct:.0}%"), val_color);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Max), |ui| {
-                ui.label(
-                    egui::RichText::new(&snap.cpu.brand)
-                        .color(text_subtle)
-                        .size(10.0),
-                );
-            });
-        });
+        card_hdr(ui, "CPU", &snap.cpu.brand, &format!("{pct:.0}%"), accent, val_color, subtle);
+        dots_spark(ui, pct, accent, &app.hist_cpu.as_vec());
+        gradient_bar(ui, pct, 5.0, accent, Theme::dim(accent));
 
-        ui.add_space(4.0);
-        bar(ui, pct, 8.0, accent, track, bar_rounding);
-        ui.add_space(8.0);
-
-        // Per-core mini grid
-        let cores = &snap.cpu.per_core;
-        let grid_cols = ((cores.len().min(16)) as f32).sqrt().ceil() as usize;
-        Grid::new("cpu_cores")
-            .num_columns(grid_cols * 2)
-            .spacing([4.0, 3.0])
-            .show(ui, |ui| {
-                for (i, &c) in cores.iter().take(16).enumerate() {
-                    ui.label(
-                        egui::RichText::new(format!("C{i}"))
-                            .color(text_dim)
-                            .size(9.0),
-                    );
-                    ui.allocate_ui(Vec2::new(60.0, 5.0), |ui| {
-                        mini_bar(ui, c, accent, track);
-                    });
-                    if (i + 1) % grid_cols == 0 {
-                        ui.end_row();
-                    }
-                }
-            });
-
-        ui.add_space(8.0);
-        sparkline(ui, "spark_cpu", &app.hist_cpu.as_vec(), accent, 36.0);
-
-        stat_row(
+        stat_line(
             ui,
-            "Freq",
             &format!("{} MHz", snap.cpu.frequency_mhz),
-            text_subtle,
-            text_primary,
-        );
-        stat_row(
-            ui,
-            "Cores",
-            &snap.cpu.logical_cores.to_string(),
-            text_subtle,
-            text_primary,
+            &format!("{} cores", snap.cpu.logical_cores),
+            dim,
+            subtle,
         );
     });
 }
@@ -106,62 +123,26 @@ fn cpu_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
 
 fn memory_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
     let accent = app.theme.accent_mem;
-    let track = Theme::dim(accent);
     let pct = snap.memory.usage_percent();
     let val_color = app.theme.health_color(pct, 70.0, 90.0);
-    let text_subtle = app.theme.text_subtle;
-    let text_primary = app.theme.text_primary;
-    let bar_rounding = app.theme.bar_rounding;
+    let subtle = app.theme.text_subtle;
+    let dim = app.theme.text_dim;
+    let total_label = fmt_bytes(snap.memory.total_bytes);
 
-    card_frame(&app.theme).show(ui, |ui| {
-        card_title(ui, "MEMORY", accent);
+    compact_card_frame(&app.theme).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 3.0;
 
-        ui.horizontal(|ui| {
-            big_value(ui, &format!("{pct:.0}%"), val_color);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Max), |ui| {
-                ui.label(
-                    egui::RichText::new(fmt_bytes(snap.memory.total_bytes))
-                        .color(text_subtle)
-                        .size(10.0),
-                );
-            });
-        });
+        card_hdr(ui, "MEM", &total_label, &format!("{pct:.0}%"), accent, val_color, subtle);
+        dots_spark(ui, pct, accent, &app.hist_mem.as_vec());
+        gradient_bar(ui, pct, 5.0, accent, Theme::dim(accent));
 
-        ui.add_space(4.0);
-        bar(ui, pct, 8.0, accent, track, bar_rounding);
-        ui.add_space(8.0);
-        sparkline(ui, "spark_mem", &app.hist_mem.as_vec(), accent, 36.0);
-
-        stat_row(
+        stat_line(
             ui,
-            "Used",
-            &fmt_bytes(snap.memory.used_bytes),
-            text_subtle,
-            text_primary,
+            &format!("{} used", fmt_bytes(snap.memory.used_bytes)),
+            &format!("{} free", fmt_bytes(snap.memory.available_bytes)),
+            dim,
+            subtle,
         );
-        stat_row(
-            ui,
-            "Available",
-            &fmt_bytes(snap.memory.available_bytes),
-            text_subtle,
-            text_primary,
-        );
-        if snap.memory.swap_total_bytes > 0 {
-            let swap_pct =
-                snap.memory.swap_used_bytes as f32 / snap.memory.swap_total_bytes as f32 * 100.0;
-            stat_row(
-                ui,
-                "Swap",
-                &format!(
-                    "{} / {} ({:.0}%)",
-                    fmt_bytes(snap.memory.swap_used_bytes),
-                    fmt_bytes(snap.memory.swap_total_bytes),
-                    swap_pct
-                ),
-                text_subtle,
-                text_primary,
-            );
-        }
     });
 }
 
@@ -169,125 +150,55 @@ fn memory_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
 
 fn gpu_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
     let accent = app.theme.accent_gpu;
-    let track = Theme::dim(accent);
-    let text_subtle = app.theme.text_subtle;
-    let text_primary = app.theme.text_primary;
-    let text_dim = app.theme.text_dim;
-    let bar_rounding = app.theme.bar_rounding;
+    let subtle = app.theme.text_subtle;
+    let dim = app.theme.text_dim;
 
-    card_frame(&app.theme).show(ui, |ui| {
-        card_title(ui, "GPU", accent);
+    compact_card_frame(&app.theme).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 3.0;
 
         if !snap.gpu.available {
-            ui.label(
-                egui::RichText::new("No GPU data available")
-                    .color(text_dim)
-                    .size(11.0),
-            );
+            card_hdr(ui, "GPU", "unavailable", "—", accent, dim, subtle);
+            ui.label(egui::RichText::new("WMI data not available").color(dim).size(10.0));
             return;
         }
 
         let pct = snap.gpu.utilization_percent.unwrap_or(0.0);
         let val_color = app.theme.health_color(pct, 70.0, 90.0);
-        let label = if snap.gpu.utilization_percent.is_some() {
+        let value_str = if snap.gpu.utilization_percent.is_some() {
             format!("{pct:.0}%")
         } else {
             "N/A".into()
         };
 
-        big_value(ui, &label, val_color);
-        ui.add_space(4.0);
-        bar(ui, pct, 8.0, accent, track, bar_rounding);
-        ui.add_space(8.0);
+        card_hdr(ui, "GPU", &snap.gpu.name, &value_str, accent, val_color, subtle);
+        dots_spark(ui, pct, accent, &app.hist_gpu.as_vec());
+        gradient_bar(ui, pct, 5.0, accent, Theme::dim(accent));
 
-        if !app.hist_gpu.data.is_empty() {
-            sparkline(ui, "spark_gpu", &app.hist_gpu.as_vec(), accent, 36.0);
-        }
+        // VRAM + temp in one line
+        let vram_str = if snap.gpu.vram_total_bytes > 0 {
+            format!(
+                "VRAM {}/{}",
+                fmt_bytes(snap.gpu.vram_used_bytes),
+                fmt_bytes(snap.gpu.vram_total_bytes)
+            )
+        } else {
+            String::new()
+        };
+        let temp_str = snap
+            .gpu
+            .temperature_celsius
+            .map(|t| format!("{t:.0}°C"))
+            .unwrap_or_default();
 
-        ui.label(
-            egui::RichText::new(&snap.gpu.name)
-                .color(text_subtle)
-                .size(10.0),
-        );
+        let right = match (vram_str.is_empty(), temp_str.is_empty()) {
+            (false, false) => format!("{vram_str}  ·  {temp_str}"),
+            (false, true) => vram_str,
+            (true, false) => temp_str,
+            _ => "—".into(),
+        };
 
-        if snap.gpu.vram_total_bytes > 0 {
-            let vram_pct = snap.gpu.vram_usage_percent();
-            stat_row(
-                ui,
-                "VRAM",
-                &format!(
-                    "{} / {}",
-                    fmt_bytes(snap.gpu.vram_used_bytes),
-                    fmt_bytes(snap.gpu.vram_total_bytes)
-                ),
-                text_subtle,
-                text_primary,
-            );
-            bar(ui, vram_pct, 5.0, accent, track, bar_rounding);
-        }
-
-        if let Some(t) = snap.gpu.temperature_celsius {
-            stat_row(
-                ui,
-                "Temp",
-                &format!("{t:.0}°C"),
-                text_subtle,
-                app.theme.health_color(t, 75.0, 90.0),
-            );
-        }
-    });
-}
-
-// ── Network ───────────────────────────────────────────────────────────────────
-
-fn network_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
-    let accent = app.theme.accent_net;
-    let accent_rx = app.theme.accent_cpu;
-    let text_subtle = app.theme.text_subtle;
-
-    card_frame(&app.theme).show(ui, |ui| {
-        card_title(ui, "NETWORK", accent);
-
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                ui.label(egui::RichText::new("▲ TX").color(text_subtle).size(10.0));
-                ui.label(
-                    egui::RichText::new(fmt_bps(snap.network.total_tx_bps))
-                        .color(accent)
-                        .monospace()
-                        .size(18.0)
-                        .strong(),
-                );
-            });
-            ui.add_space(16.0);
-            ui.vertical(|ui| {
-                ui.label(egui::RichText::new("▼ RX").color(text_subtle).size(10.0));
-                ui.label(
-                    egui::RichText::new(fmt_bps(snap.network.total_rx_bps))
-                        .color(accent_rx)
-                        .monospace()
-                        .size(18.0)
-                        .strong(),
-                );
-            });
-        });
-
-        ui.add_space(8.0);
-        sparkline(ui, "spark_tx", &app.hist_tx.as_vec(), accent, 28.0);
-        sparkline(ui, "spark_rx", &app.hist_rx.as_vec(), accent_rx, 28.0);
-        ui.add_space(4.0);
-
-        for iface in snap.network.interfaces.iter().take(5) {
-            if iface.rx_bps == 0 && iface.tx_bps == 0 {
-                continue;
-            }
-            stat_row(
-                ui,
-                &truncate(&iface.name, 22),
-                &format!("↑{} ↓{}", fmt_bps(iface.tx_bps), fmt_bps(iface.rx_bps)),
-                text_subtle,
-                app.theme.text_primary,
-            );
+        if !right.is_empty() {
+            stat_line(ui, "", &right, dim, subtle);
         }
     });
 }
@@ -295,24 +206,18 @@ fn network_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
 // ── FPS ───────────────────────────────────────────────────────────────────────
 
 fn fps_card(app: &mut MonitorApp, ui: &mut Ui, fps: &FpsSnapshot) {
-    let accent = app.theme.accent_net; // green — matches "go fast"
-    let text_subtle = app.theme.text_subtle;
-    let text_dim = app.theme.text_dim;
-    let text_primary = app.theme.text_primary;
+    let accent = app.theme.accent_net;
+    let subtle = app.theme.text_subtle;
+    let dim = app.theme.text_dim;
 
-    card_frame(&app.theme).show(ui, |ui| {
-        card_title(ui, "FPS", accent);
+    compact_card_frame(&app.theme).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 3.0;
 
         if !fps.active {
+            card_hdr(ui, "FPS", "no game detected", "—", accent, dim, subtle);
             ui.label(
-                egui::RichText::new("Waiting for foreground window…")
-                    .color(text_dim)
-                    .size(11.0),
-            );
-            ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new("Switch to a game or any DirectX app.")
-                    .color(text_dim)
+                egui::RichText::new("Switch to a DirectX / Vulkan window")
+                    .color(dim)
                     .size(10.0),
             );
             return;
@@ -326,33 +231,77 @@ fn fps_card(app: &mut MonitorApp, ui: &mut Ui, fps: &FpsSnapshot) {
             app.theme.crit
         };
 
-        big_value(ui, &format!("{:.0}", fps.fps), val_color);
-        ui.label(egui::RichText::new("frames / sec").color(text_subtle).size(10.0));
-        ui.add_space(8.0);
+        let fps_pct = (fps.fps / 120.0 * 100.0).min(100.0); // 120 fps = full gauge
+        let value_str = format!("{:.0} fps", fps.fps);
 
-        if !app.hist_fps.data.is_empty() {
-            sparkline(ui, "spark_fps", &app.hist_fps.as_vec(), accent, 40.0);
-        }
+        card_hdr(ui, "FPS", &fps.window_title, &value_str, accent, val_color, subtle);
+        dots_spark(ui, fps_pct, val_color, &app.hist_fps.as_vec());
+        gradient_bar(ui, fps_pct, 5.0, val_color, Theme::dim(val_color));
 
-        ui.add_space(4.0);
-        stat_row(
-            ui,
-            "Window",
-            &truncate(&fps.window_title, 28),
-            text_subtle,
-            text_primary,
-        );
+        let ft = if fps.fps > 0.0 {
+            format!("{:.1} ms frame", 1000.0 / fps.fps)
+        } else {
+            String::new()
+        };
+        stat_line(ui, &truncate(&fps.window_title, 26), &ft, dim, subtle);
+    });
+}
 
-        // Frame time is the inverse of FPS — useful for gamers.
-        if fps.fps > 0.0 {
-            stat_row(
-                ui,
-                "Frame time",
-                &format!("{:.1} ms", 1000.0 / fps.fps),
-                text_subtle,
-                text_primary,
-            );
-        }
+// ── Network ───────────────────────────────────────────────────────────────────
+
+fn network_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
+    let acc_tx = app.theme.accent_net;  // green — upload
+    let acc_rx = app.theme.accent_cpu;  // cyan  — download
+    let subtle = app.theme.text_subtle;
+
+    let tx_hist = app.hist_tx.as_vec();
+    let rx_hist = app.hist_rx.as_vec();
+    let tx_max = tx_hist.iter().cloned().fold(1.0f64, f64::max) as f32;
+    let rx_max = rx_hist.iter().cloned().fold(1.0f64, f64::max) as f32;
+    let tx_pct = (snap.network.total_tx_bps as f32 / tx_max * 100.0).clamp(0.0, 100.0);
+    let rx_pct = (snap.network.total_rx_bps as f32 / rx_max * 100.0).clamp(0.0, 100.0);
+
+    compact_card_frame(&app.theme).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 3.0;
+
+        // Header — TX and RX values right-aligned
+        ui.horizontal(|ui| {
+            let (r, _) = ui.allocate_exact_size(Vec2::new(3.0, 14.0), Sense::hover());
+            ui.painter().rect_filled(r, Rounding::same(1.5), acc_tx);
+            ui.add_space(5.0);
+            ui.label(egui::RichText::new("NET").color(acc_tx).size(11.5).strong());
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new(fmt_bps(snap.network.total_rx_bps))
+                        .color(acc_rx)
+                        .monospace()
+                        .size(11.5),
+                );
+                ui.label(egui::RichText::new("↓").color(subtle).size(10.0));
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(fmt_bps(snap.network.total_tx_bps))
+                        .color(acc_tx)
+                        .monospace()
+                        .size(11.5),
+                );
+                ui.label(egui::RichText::new("↑").color(subtle).size(10.0));
+            });
+        });
+
+        // TX — arrow label + dots
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("▲").color(acc_tx).size(9.5));
+            layered_dots(ui, tx_pct, acc_tx, 3.0);
+        });
+        gradient_bar(ui, tx_pct, 4.0, acc_tx, Theme::dim(acc_tx));
+
+        // RX — arrow label + dots
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("▼").color(acc_rx).size(9.5));
+            layered_dots(ui, rx_pct, acc_rx, 3.0);
+        });
+        gradient_bar(ui, rx_pct, 4.0, acc_rx, Theme::dim(acc_rx));
     });
 }
 
@@ -360,24 +309,25 @@ fn fps_card(app: &mut MonitorApp, ui: &mut Ui, fps: &FpsSnapshot) {
 
 fn disk_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
     let accent = app.theme.accent_disk;
-    let track = Theme::dim(accent);
-    let text_subtle = app.theme.text_subtle;
-    let text_dim = app.theme.text_dim;
-    let bar_rounding = app.theme.bar_rounding;
+    let dim = app.theme.text_dim;
 
-    card_frame(&app.theme).show(ui, |ui| {
-        card_title(ui, "DISKS", accent);
+    compact_card_frame(&app.theme).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 3.0;
+
+        // Title
+        ui.horizontal(|ui| {
+            let (r, _) = ui.allocate_exact_size(Vec2::new(3.0, 14.0), Sense::hover());
+            ui.painter().rect_filled(r, Rounding::same(1.5), accent);
+            ui.add_space(5.0);
+            ui.label(egui::RichText::new("DISKS").color(accent).size(11.5).strong());
+        });
 
         if snap.disks.is_empty() {
-            ui.label(
-                egui::RichText::new("No disks found")
-                    .color(text_dim)
-                    .size(11.0),
-            );
+            ui.label(egui::RichText::new("No disks found").color(dim).size(10.0));
             return;
         }
 
-        for disk in &snap.disks {
+        for disk in snap.disks.iter().take(3) {
             let pct = disk.usage_percent();
             let val_color = app.theme.health_color(pct, 75.0, 90.0);
 
@@ -385,91 +335,96 @@ fn disk_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
                 ui.label(
                     egui::RichText::new(&disk.mount)
                         .color(accent)
-                        .size(11.0)
+                        .monospace()
+                        .size(10.0)
                         .strong(),
                 );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(
                         egui::RichText::new(format!(
-                            "{} / {} ({:.0}%)",
+                            "{:.0}%  {} / {}",
+                            pct,
                             fmt_bytes(disk.used_bytes),
-                            fmt_bytes(disk.total_bytes),
-                            pct
+                            fmt_bytes(disk.total_bytes)
                         ))
                         .color(val_color)
                         .monospace()
-                        .size(10.0),
+                        .size(9.5),
                     );
                 });
             });
+            gradient_bar(ui, pct, 5.0, accent, Theme::dim(accent));
+        }
 
-            bar(ui, pct, 5.0, accent, track, bar_rounding);
-            ui.add_space(2.0);
-
-            if disk.read_bps > 0 || disk.write_bps > 0 {
-                ui.horizontal(|ui| {
-                    ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "R:{}  W:{}",
-                            fmt_bps(disk.read_bps),
-                            fmt_bps(disk.write_bps)
-                        ))
-                        .color(text_subtle)
-                        .monospace()
-                        .size(10.0),
-                    );
-                });
-            }
-            ui.add_space(6.0);
+        if snap.disks.len() > 3 {
+            ui.label(
+                egui::RichText::new(format!("+ {} more", snap.disks.len() - 3))
+                    .color(dim)
+                    .size(9.5),
+            );
         }
     });
 }
 
-// ── Temps ─────────────────────────────────────────────────────────────────────
+// ── Temperatures ──────────────────────────────────────────────────────────────
 
 fn temps_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
     let accent = app.theme.accent_temp;
-    let text_dim = app.theme.text_dim;
+    let subtle = app.theme.text_subtle;
+    let dim = app.theme.text_dim;
 
-    card_frame(&app.theme).show(ui, |ui| {
-        card_title(ui, "TEMPERATURES", accent);
+    compact_card_frame(&app.theme).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 3.0;
+
+        // Title
+        ui.horizontal(|ui| {
+            let (r, _) = ui.allocate_exact_size(Vec2::new(3.0, 14.0), Sense::hover());
+            ui.painter().rect_filled(r, Rounding::same(1.5), accent);
+            ui.add_space(5.0);
+            ui.label(egui::RichText::new("TEMPS").color(accent).size(11.5).strong());
+        });
 
         if snap.temps.cpu_celsius.is_none() && snap.temps.gpu_celsius.is_none() {
             ui.label(
-                egui::RichText::new(
-                    "Temperature data unavailable.\nRun as Administrator for full sensor access.",
-                )
-                .color(text_dim)
-                .size(11.0),
+                egui::RichText::new("Run as Administrator for sensor access")
+                    .color(dim)
+                    .size(10.0),
             );
             return;
         }
 
-        ui.horizontal(|ui| {
-            temp_gauge(ui, "CPU", snap.temps.cpu_celsius, &app.theme);
-            ui.add_space(24.0);
-            temp_gauge(ui, "GPU", snap.temps.gpu_celsius, &app.theme);
-        });
-    });
-}
-
-fn temp_gauge(ui: &mut Ui, label: &str, celsius: Option<f32>, theme: &Theme) {
-    ui.vertical(|ui| {
-        ui.label(egui::RichText::new(label).color(theme.text_subtle).size(10.0));
-        match celsius {
-            Some(t) => {
+        // CPU
+        if let Some(t) = snap.temps.cpu_celsius {
+            let color = app.theme.health_color(t, 70.0, 85.0);
+            let pct = (t / 100.0 * 100.0).clamp(0.0, 100.0);
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("CPU").color(subtle).size(10.0));
                 ui.label(
-                    egui::RichText::new(format!("{t:.0}°C"))
-                        .color(theme.health_color(t, 70.0, 90.0))
+                    egui::RichText::new(format!("{t:.0}°"))
+                        .color(color)
                         .monospace()
-                        .size(26.0)
+                        .size(12.0)
                         .strong(),
                 );
-            }
-            None => {
-                ui.label(egui::RichText::new("—").color(theme.text_dim).size(26.0));
-            }
+                layered_dots(ui, pct, color, 3.0);
+            });
+        }
+
+        // GPU
+        if let Some(t) = snap.temps.gpu_celsius {
+            let color = app.theme.health_color(t, 75.0, 90.0);
+            let pct = (t / 100.0 * 100.0).clamp(0.0, 100.0);
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("GPU").color(subtle).size(10.0));
+                ui.label(
+                    egui::RichText::new(format!("{t:.0}°"))
+                        .color(color)
+                        .monospace()
+                        .size(12.0)
+                        .strong(),
+                );
+                layered_dots(ui, pct, color, 3.0);
+            });
         }
     });
 }
@@ -483,3 +438,7 @@ fn truncate(s: &str, max: usize) -> String {
         format!("{}…", &s[..max.saturating_sub(1)])
     }
 }
+
+// Bring egui::Ui into scope (it's re-exported from egui's prelude but needs
+// an explicit import when egui is a direct dep without the prelude glob).
+use egui::Ui;
