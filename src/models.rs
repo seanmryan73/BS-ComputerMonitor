@@ -1,4 +1,5 @@
 //! Core data models shared between the collector and UI layers.
+#![allow(dead_code)]
 
 use std::collections::VecDeque;
 

@@ -37,6 +37,7 @@ pub struct MonitorApp {
 
     last_tick: std::time::Instant,
     first_tick: bool,
+    pub always_on_top: bool,
 }
 
 impl MonitorApp {
@@ -74,6 +75,7 @@ impl MonitorApp {
             last_tick: std::time::Instant::now()
                 - std::time::Duration::from_secs(2),
             first_tick: true,
+            always_on_top: false,
         }
     }
 

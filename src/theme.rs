@@ -28,51 +28,58 @@ pub struct Theme {
     pub warn: Color32,
     pub crit: Color32,
 
-    // Geometry
-    pub card_rounding: Rounding,
-    pub bar_rounding: Rounding,
 }
 
 impl Default for Theme {
     fn default() -> Self {
         Self {
-            // BagPipes Black — same base as BS-VChanger-Rust default theme
-            bg: Color32::from_rgb(0x08, 0x08, 0x08),
-            card_bg: Color32::from_rgb(0x13, 0x13, 0x13),
-            card_border: Color32::from_rgb(0x22, 0x22, 0x22),
-            titlebar_bg: Color32::from_rgb(0x05, 0x05, 0x05),
-            hover_bg: Color32::from_rgb(0x1c, 0x1c, 0x1c),
+            // Sagrada Família — stone-dark grounds, jewel-tone light
+            bg:          Color32::from_rgb(0x07, 0x07, 0x0B),
+            card_bg:     Color32::from_rgb(0x12, 0x12, 0x18),
+            card_border: Color32::from_rgb(0x22, 0x22, 0x2C),
+            titlebar_bg: Color32::from_rgb(0x04, 0x04, 0x08),
+            hover_bg:    Color32::from_rgb(0x1A, 0x1A, 0x24),
 
-            text_primary: Color32::from_rgb(0xf0, 0xf0, 0xf0),
-            text_subtle: Color32::from_rgb(0x60, 0x60, 0x60),
-            text_dim: Color32::from_rgb(0x30, 0x30, 0x30),
+            text_primary: Color32::from_rgb(0xEE, 0xEE, 0xF4),
+            text_subtle:  Color32::from_rgb(0x62, 0x62, 0x72),
+            text_dim:     Color32::from_rgb(0x2E, 0x2E, 0x3A),
 
-            accent_cpu: Color32::from_rgb(85, 222, 255),
-            accent_mem: Color32::from_rgb(240, 160, 80),
-            accent_gpu: Color32::from_rgb(192, 132, 252),
-            accent_net: Color32::from_rgb(77, 232, 142),
-            accent_disk: Color32::from_rgb(96, 165, 250),
-            accent_temp: Color32::from_rgb(251, 146, 60),
+            // Jewel accents — stained-glass depth, not neon
+            accent_cpu:  Color32::from_rgb( 48, 172, 248), // sapphire
+            accent_mem:  Color32::from_rgb(230, 138,  28), // amber topaz
+            accent_gpu:  Color32::from_rgb(162,  95, 238), // amethyst
+            accent_net:  Color32::from_rgb( 42, 200, 118), // jade emerald
+            accent_disk: Color32::from_rgb( 62, 122, 212), // lapis lazuli
+            accent_temp: Color32::from_rgb(228,  88,  52), // fire opal
 
-            ok: Color32::from_rgb(77, 232, 142),
-            warn: Color32::from_rgb(251, 191, 36),
-            crit: Color32::from_rgb(248, 113, 113),
+            // Gemstone health
+            ok:   Color32::from_rgb( 42, 200, 118), // emerald
+            warn: Color32::from_rgb(238, 178,   8), // amber gold
+            crit: Color32::from_rgb(225,  68,  68), // ruby
 
-            card_rounding: Rounding::same(8.0),
-            bar_rounding: Rounding::same(4.0),
         }
     }
 }
 
 impl Theme {
     pub fn apply(&self, ctx: &egui::Context) {
+        // Embed CascadiaMono as the UI font (monospace + proportional)
+        let mut fonts = egui::FontDefinitions::default();
+        fonts.font_data.insert(
+            "CascadiaMono".to_owned(),
+            egui::FontData::from_static(include_bytes!("../assets/CascadiaMono.ttf")),
+        );
+        fonts.families.entry(egui::FontFamily::Monospace).or_default().insert(0, "CascadiaMono".to_owned());
+        fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, "CascadiaMono".to_owned());
+        ctx.set_fonts(fonts);
+
         let mut style = (*ctx.style()).clone();
         let mut visuals = Visuals::dark();
 
         visuals.panel_fill = self.bg;
         visuals.window_fill = self.bg;
         visuals.faint_bg_color = self.card_bg;
-        visuals.extreme_bg_color = Color32::from_rgb(4, 8, 12);
+        visuals.extreme_bg_color = Color32::from_rgb(3, 3, 8);
         visuals.window_shadow = egui::Shadow::NONE;
         visuals.popup_shadow = egui::Shadow::NONE;
 
@@ -91,7 +98,7 @@ impl Theme {
         visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, self.accent_cpu);
         visuals.widgets.hovered.rounding = Rounding::same(4.0);
 
-        visuals.widgets.active.bg_fill = Color32::from_rgb(25, 55, 70);
+        visuals.widgets.active.bg_fill = Color32::from_rgb(18, 25, 50);
         visuals.widgets.active.fg_stroke = Stroke::new(1.0, self.accent_cpu);
         visuals.widgets.active.bg_stroke = Stroke::new(1.0, self.accent_cpu);
 

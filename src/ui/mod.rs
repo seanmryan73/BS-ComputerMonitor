@@ -21,11 +21,12 @@ pub fn draw(
     let tb_bg = app.theme.titlebar_bg;
     let bg = app.theme.bg;
 
+    let always_on_top = &mut app.always_on_top;
     TopBottomPanel::top("titlebar")
         .exact_height(36.0)
         .frame(Frame::none().fill(tb_bg))
         .show(ctx, |ui| {
-            titlebar::show(ui, ctx, &app.theme);
+            titlebar::show(ui, ctx, &app.theme, always_on_top);
         });
 
     CentralPanel::default()
