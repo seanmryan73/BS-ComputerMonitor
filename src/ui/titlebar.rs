@@ -114,28 +114,34 @@ fn pin_btn(ui: &mut Ui, theme: &Theme, active: bool) -> Response {
     let c = rect.center();
     let p = ui.painter();
 
-    // Skull dome — solid filled circle
+    // Jellyfish bell — same dome as the old skull
     let dome = c + egui::vec2(0.0, -2.0);
     p.circle_filled(dome, 6.5, color);
 
-    // Eye sockets — bg-colored holes punched through the solid dome
-    let eye_l = dome + egui::vec2(-3.0, -1.5);
-    let eye_r = dome + egui::vec2( 3.0, -1.5);
-    p.circle_filled(eye_l, 2.0, bg);
-    p.circle_filled(eye_r, 2.0, bg);
+    // Bioluminescent spots — same positions as the skull eye sockets
+    p.circle_filled(dome + egui::vec2(-3.0, -1.5), 1.8, bg);
+    p.circle_filled(dome + egui::vec2( 3.0, -1.5), 1.8, bg);
 
-    // Jaw separation — bg line cuts dome into face + teeth area
+    // Bell skirt edge — same line as the skull jaw, now defines bell bottom
     let jaw_y = dome.y + 4.0;
     p.line_segment(
-        [egui::pos2(c.x - 5.0, jaw_y), egui::pos2(c.x + 5.0, jaw_y)],
-        egui::Stroke::new(1.8, bg),
+        [egui::pos2(c.x - 5.5, jaw_y), egui::pos2(c.x + 5.5, jaw_y)],
+        egui::Stroke::new(2.0, bg),
     );
 
-    // Two gaps creating 3 teeth (bg vertical cuts in lower dome)
-    for dx in [-1.9f32, 1.9] {
+    // Oral arms — the skull's 3 teeth, now trailing below the bell.
+    // The skull had bg-coloured gaps at ±1.9 px creating 3 solid teeth;
+    // those same tooth centres become the arm roots here, flaring outward.
+    let arm_top = jaw_y + 0.5;
+    let arm_len = 6.5_f32;
+    for (x_top, x_bot) in [
+        (c.x - 3.2, c.x - 4.0),
+        (c.x,       c.x      ),
+        (c.x + 3.2, c.x + 4.0),
+    ] {
         p.line_segment(
-            [egui::pos2(c.x + dx, jaw_y), egui::pos2(c.x + dx, dome.y + 7.2)],
-            egui::Stroke::new(1.8, bg),
+            [egui::pos2(x_top, arm_top), egui::pos2(x_bot, arm_top + arm_len)],
+            egui::Stroke::new(1.6, color),
         );
     }
 
@@ -159,17 +165,16 @@ fn min_btn(ui: &mut Ui, theme: &Theme) -> Response {
 
 fn about_btn(ui: &mut Ui, theme: &Theme) -> Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::click());
-    let color = if resp.hovered() {
-        theme.accent_gpu
-    } else {
-        theme.text_dim
-    };
-    ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        "\u{00BF}",
-        egui::FontId::new(16.0, egui::FontFamily::Proportional),
-        color,
+    let color = if resp.hovered() { theme.accent_gpu } else { theme.text_dim };
+    let c = rect.center();
+    let p = ui.painter();
+
+    // Info "i" — dot above a short stem
+    p.circle_filled(c + egui::vec2(0.0, -4.5), 1.8, color);
+    p.line_segment(
+        [c + egui::vec2(0.0, -1.5), c + egui::vec2(0.0, 5.0)],
+        egui::Stroke::new(2.2, color),
     );
+
     resp
 }
