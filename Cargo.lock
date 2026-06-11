@@ -214,7 +214,7 @@ dependencies = [
 
 [[package]]
 name = "bs-computer-monitor"
-version = "0.1.0"
+version = "1.96.9"
 dependencies = [
  "anyhow",
  "eframe",

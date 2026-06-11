@@ -97,26 +97,22 @@ fn draw_right_panel(
         Color32::from_rgba_unmultiplied(r, g, b, 180),
     );
 
-    // Neon glow + solid big value
+    // Neon glow + solid big value — same style as compact mode
     let (num_y, anchor) = if unit.is_empty() {
         (mid_y, Align2::CENTER_CENTER)
     } else {
         (mid_y - 4.0, Align2::CENTER_BOTTOM)
     };
     let pos = egui::pos2(right_cx, num_y);
+    let fid = FontId::new(28.0, FontFamily::Monospace);
 
-    // Outer glow — 4 diagonal offsets at 2 px
-    let outer = Color32::from_rgba_unmultiplied(r, g, b, 28);
-    for (dx, dy) in [(-2.0f32, -2.0), (2.0, -2.0), (-2.0, 2.0), (2.0, 2.0)] {
-        ui.painter().text(egui::pos2(pos.x + dx, pos.y + dy), anchor, big_text, FontId::new(28.0, FontFamily::Monospace), outer);
-    }
-    // Inner glow — 4 cardinal offsets at 1 px
-    let inner = Color32::from_rgba_unmultiplied(r, g, b, 50);
+    // Soft bloom — 4 cardinals at 1 px
+    let halo = Color32::from_rgba_unmultiplied(r, g, b, 18);
     for (dx, dy) in [(-1.0f32, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)] {
-        ui.painter().text(egui::pos2(pos.x + dx, pos.y + dy), anchor, big_text, FontId::new(28.0, FontFamily::Monospace), inner);
+        ui.painter().text(egui::pos2(pos.x + dx, pos.y + dy), anchor, big_text, fid.clone(), halo);
     }
     // Solid core
-    ui.painter().text(pos, anchor, big_text, FontId::new(28.0, FontFamily::Monospace), text_color);
+    ui.painter().text(pos, anchor, big_text, fid, text_color);
 
     if !unit.is_empty() {
         ui.painter().text(

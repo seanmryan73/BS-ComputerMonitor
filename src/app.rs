@@ -33,7 +33,9 @@ pub struct CardVisibility {
     pub compact_mode: bool,
     #[serde(default = "default_compact_font_size")]
     pub compact_font_size: f32,
-    #[serde(default)]
+    #[serde(skip)]
+    pub always_on_top: bool,
+    #[serde(skip)]
     pub passthrough_mode: bool,
 }
 
@@ -48,6 +50,7 @@ impl Default for CardVisibility {
             opacity: 1.0,
             compact_mode: false,
             compact_font_size: 22.0,
+            always_on_top: false,
             passthrough_mode: false,
         }
     }
@@ -115,7 +118,6 @@ pub struct MonitorApp {
 
     last_tick: std::time::Instant,
     first_tick: bool,
-    pub always_on_top: bool,
     pub show_about: bool,
     pub card_vis: Arc<Mutex<CardVisibility>>,
     hwnd: Option<isize>,
@@ -123,7 +125,9 @@ pub struct MonitorApp {
     opacity_startup_frames: u8,
     prev_always_on_top: bool,
     prev_compact_mode: Option<bool>,
+    prev_passthrough_mode: bool,
     pub passthrough_active: bool,
+    pub prev_show_about: bool,
 }
 
 impl MonitorApp {
@@ -174,7 +178,6 @@ impl MonitorApp {
                 .checked_sub(crate::collector::INTERVAL)
                 .unwrap_or_else(std::time::Instant::now),
             first_tick: true,
-            always_on_top: false,
             show_about: false,
             card_vis: Arc::new(Mutex::new(CardVisibility::load())),
             hwnd: None,
@@ -182,7 +185,9 @@ impl MonitorApp {
             opacity_startup_frames: 0,
             prev_always_on_top: false,
             prev_compact_mode: None,
+            prev_passthrough_mode: false,
             passthrough_active: false,
+            prev_show_about: false,
         }
     }
 
@@ -329,12 +334,35 @@ impl eframe::App for MonitorApp {
             self.hwnd = get_main_hwnd();
         }
 
-        // WindowLevel changes (pin/unpin) cause winit to call SetWindowPos which
-        // can strip WS_EX_LAYERED — detect the toggle and force a re-apply.
-        if self.always_on_top != self.prev_always_on_top {
-            self.prev_always_on_top = self.always_on_top;
+        // Passthrough and pin-on-top are coupled: one implies the other.
+        let passthrough_mode = self.card_vis.lock().map(|v| v.passthrough_mode).unwrap_or(false);
+        if passthrough_mode != self.prev_passthrough_mode {
+            if let Ok(mut v) = self.card_vis.lock() {
+                v.always_on_top = passthrough_mode;
+            }
+        }
+        self.prev_passthrough_mode = passthrough_mode;
+
+        // Send WindowLevel command when always_on_top changes; also reset opacity state
+        // because SetWindowPos (called by winit) can strip WS_EX_LAYERED.
+        let always_on_top = self.card_vis.lock().map(|v| v.always_on_top).unwrap_or(false);
+        if always_on_top != self.prev_always_on_top {
+            self.prev_always_on_top = always_on_top;
             self.applied_opacity = -1.0;
             self.opacity_startup_frames = 0;
+            let level = if always_on_top {
+                egui::WindowLevel::AlwaysOnTop
+            } else {
+                egui::WindowLevel::Normal
+            };
+            ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
+            // Keep the settings window at the same level if it is open
+            if self.show_about {
+                ctx.send_viewport_cmd_to(
+                    egui::ViewportId::from_hash_of("about_viewport"),
+                    egui::ViewportCommand::WindowLevel(level),
+                );
+            }
         }
 
         let target_opacity = self.card_vis.lock().map(|v| v.opacity).unwrap_or(1.0);

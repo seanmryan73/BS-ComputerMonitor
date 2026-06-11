@@ -23,14 +23,23 @@ pub fn draw(
     let tb_bg = app.theme.titlebar_bg;
     let bg = app.theme.bg;
 
-    let always_on_top = &mut app.always_on_top;
     let show_about = &mut app.show_about;
     TopBottomPanel::top("titlebar")
         .exact_height(36.0)
         .frame(Frame::none().fill(tb_bg))
         .show(ctx, |ui| {
-            titlebar::show(ui, ctx, &app.theme, always_on_top, show_about, Arc::clone(&app.card_vis));
+            titlebar::show(ui, ctx, &app.theme, show_about, Arc::clone(&app.card_vis));
         });
+
+    // Calculate where to place the settings window on the frame it first opens.
+    // Only set once — user can freely reposition it after that.
+    let initial_pos = if app.show_about && !app.prev_show_about {
+        ctx.input(|i| i.viewport().outer_rect)
+            .map(|r| egui::pos2((r.min.x - 360.0 - 8.0).max(0.0), r.min.y))
+    } else {
+        None
+    };
+    app.prev_show_about = app.show_about;
 
     let vis = app.card_vis.lock().map(|g| g.clone()).unwrap_or_default();
     CentralPanel::default()
@@ -39,9 +48,8 @@ pub fn draw(
             cards::show_grid(app, ui, snap, fps, &vis);
         });
 
-    // About / Help / Config — separate OS window
-    let card_vis = Arc::clone(&app.card_vis);
-    about::show(ctx, &app.theme, &mut app.show_about, card_vis);
+    // Settings window — separate opaque OS window to the left
+    about::show(ctx, &app.theme, &mut app.show_about, Arc::clone(&app.card_vis), initial_pos);
 
     // Resize handles — invisible edge/corner hit-zones around the window.
     // The title bar (top 36 px) is excluded; N/NE/NW are skipped to avoid
@@ -96,7 +104,7 @@ fn resize_handles(ctx: &Context, theme: &crate::theme::Theme) {
             egui::CursorIcon::ResizeEast,
             egui::Rect::from_min_size(
                 egui::pos2(sr.max.x - edge, sr.min.y + 36.0),
-                egui::vec2(edge, sr.height() - 36.0 - corner),
+                egui::vec2(edge, (sr.height() - 36.0 - corner).max(0.0)),
             ),
         ),
         // Left edge
@@ -106,7 +114,7 @@ fn resize_handles(ctx: &Context, theme: &crate::theme::Theme) {
             egui::CursorIcon::ResizeWest,
             egui::Rect::from_min_size(
                 egui::pos2(sr.min.x, sr.min.y + 36.0),
-                egui::vec2(edge, sr.height() - 36.0 - corner),
+                egui::vec2(edge, (sr.height() - 36.0 - corner).max(0.0)),
             ),
         ),
         // SE corner
@@ -135,6 +143,7 @@ fn resize_handles(ctx: &Context, theme: &crate::theme::Theme) {
         let dir = *dir;
         let cursor = *cursor;
         let rect = *hit_rect;
+        if rect.width() <= 0.0 || rect.height() <= 0.0 { continue; }
         let grip = dir == ResizeDirection::SouthEast;
 
         Area::new(Id::new(*id_str))
