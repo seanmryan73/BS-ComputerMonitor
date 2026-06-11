@@ -4,27 +4,42 @@ use egui::{Align, Context, Layout, Response, RichText, Sense, Ui, Vec2, Viewport
 
 use crate::theme::Theme;
 
-pub fn show(ui: &mut Ui, ctx: &Context, theme: &Theme, always_on_top: &mut bool) {
+pub fn show(ui: &mut Ui, ctx: &Context, theme: &Theme, always_on_top: &mut bool, show_about: &mut bool) {
     // Capture total width before any child allocations so we can budget the title.
     let panel_w = ui.available_width();
+
+    // Time-driven breathe animation — period ≈ 3 s, radius 3.5 → 5.5
+    let t = ctx.input(|i| i.time) as f32;
+    let pulse = (t * 2.094_f32).sin(); // 2π/3 rad/s
+    let dot_r = 4.5 + pulse * 1.0;
+    let [dr, dg, db, _] = theme.accent_cpu.to_array();
+    let glow_a = ((pulse * 0.5 + 0.5) * 45.0 + 8.0) as u8;
 
     ui.horizontal(|ui| {
         ui.set_height(36.0);
         ui.add_space(12.0);
 
-        // Accent dot
+        // Accent dot — pulsing glow halo + solid core
         let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(10.0), Sense::hover());
-        ui.painter()
-            .circle_filled(dot_rect.center(), 5.0, theme.accent_cpu);
+        let p = ui.painter();
+        p.circle_filled(
+            dot_rect.center(), dot_r + 3.5,
+            egui::Color32::from_rgba_unmultiplied(dr, dg, db, glow_a / 3),
+        );
+        p.circle_filled(
+            dot_rect.center(), dot_r + 1.5,
+            egui::Color32::from_rgba_unmultiplied(dr, dg, db, glow_a),
+        );
+        p.circle_filled(dot_rect.center(), dot_r, theme.accent_cpu);
         ui.add_space(8.0);
 
         // Title — shrinks at narrow widths so the drag zone stays usable.
-        // Budget = panel - (left_pad + dot + gap) - btn_area - min_drag
-        //        = panel - 30 - 108 - 30 = panel - 168
-        let title_budget = panel_w - 168.0;
-        let title = if title_budget >= 155.0 {
+        // Budget = panel - (left_pad + dot + gap) - btn_area(4 btns) - min_drag
+        //        = panel - 30 - 144 - 30 = panel - 204
+        let title_budget = panel_w - 204.0;
+        let title = if title_budget >= 148.0 {
             "BS Computer Monitor"
-        } else if title_budget >= 75.0 {
+        } else if title_budget >= 72.0 {
             "BS Monitor"
         } else {
             ""
@@ -34,7 +49,7 @@ pub fn show(ui: &mut Ui, ctx: &Context, theme: &Theme, always_on_top: &mut bool)
         }
 
         // Invisible drag region — guaranteed ≥ 30 px wide regardless of window size
-        let avail_w = ui.available_size_before_wrap().x - 108.0;
+        let avail_w = ui.available_size_before_wrap().x - 144.0;
         let (_rect, drag_resp) =
             ui.allocate_exact_size(Vec2::new(avail_w.max(30.0), 36.0), Sense::click_and_drag());
 
@@ -58,6 +73,9 @@ pub fn show(ui: &mut Ui, ctx: &Context, theme: &Theme, always_on_top: &mut bool)
                     egui::WindowLevel::Normal
                 };
                 ctx.send_viewport_cmd(ViewportCommand::WindowLevel(level));
+            }
+            if about_btn(ui, theme).clicked() {
+                *show_about = !*show_about;
             }
         });
     });
@@ -92,18 +110,35 @@ fn pin_btn(ui: &mut Ui, theme: &Theme, active: bool) -> Response {
     } else {
         theme.text_dim
     };
-    let center = rect.center();
+    let bg = theme.titlebar_bg;
+    let c = rect.center();
     let p = ui.painter();
-    // Pin icon: vertical line + horizontal crossbar
+
+    // Skull dome — solid filled circle
+    let dome = c + egui::vec2(0.0, -2.0);
+    p.circle_filled(dome, 6.5, color);
+
+    // Eye sockets — bg-colored holes punched through the solid dome
+    let eye_l = dome + egui::vec2(-3.0, -1.5);
+    let eye_r = dome + egui::vec2( 3.0, -1.5);
+    p.circle_filled(eye_l, 2.0, bg);
+    p.circle_filled(eye_r, 2.0, bg);
+
+    // Jaw separation — bg line cuts dome into face + teeth area
+    let jaw_y = dome.y + 4.0;
     p.line_segment(
-        [center + egui::vec2(0.0, -6.0), center + egui::vec2(0.0, 4.0)],
-        egui::Stroke::new(1.5, color),
+        [egui::pos2(c.x - 5.0, jaw_y), egui::pos2(c.x + 5.0, jaw_y)],
+        egui::Stroke::new(1.8, bg),
     );
-    p.line_segment(
-        [center + egui::vec2(-4.0, -3.0), center + egui::vec2(4.0, -3.0)],
-        egui::Stroke::new(1.5, color),
-    );
-    p.circle_filled(center + egui::vec2(0.0, -6.0), 2.0, color);
+
+    // Two gaps creating 3 teeth (bg vertical cuts in lower dome)
+    for dx in [-1.9f32, 1.9] {
+        p.line_segment(
+            [egui::pos2(c.x + dx, jaw_y), egui::pos2(c.x + dx, dome.y + 7.2)],
+            egui::Stroke::new(1.8, bg),
+        );
+    }
+
     resp
 }
 
@@ -118,6 +153,23 @@ fn min_btn(ui: &mut Ui, theme: &Theme) -> Response {
     ui.painter().line_segment(
         [center + egui::vec2(-5.0, 2.0), center + egui::vec2(5.0, 2.0)],
         egui::Stroke::new(1.5, color),
+    );
+    resp
+}
+
+fn about_btn(ui: &mut Ui, theme: &Theme) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::click());
+    let color = if resp.hovered() {
+        theme.accent_gpu
+    } else {
+        theme.text_dim
+    };
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        "\u{00BF}",
+        egui::FontId::new(16.0, egui::FontFamily::Proportional),
+        color,
     );
     resp
 }

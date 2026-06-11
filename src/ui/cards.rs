@@ -4,19 +4,19 @@ use egui::{Align, Align2, Color32, FontFamily, FontId, Layout, Rounding, Sense, 
 
 use crate::{
     app::MonitorApp,
-    models::{fmt_bytes, fmt_bps, FpsSnapshot, SystemSnapshot},
-    theme::Theme,
+    models::{fmt_bytes, fmt_bps, fmt_bps_parts, FpsSnapshot, SystemSnapshot},
 };
 
-use super::widgets::{fps_color, glow_card, gradient_bar, spectrum_bars, vu_color};
+use super::widgets::{fps_color, glow_card, spectrum_bars, vu_color};
 
 // Gradient endpoints: right-edge colour for the spectrum bar left→right fade
 const CPU_END: egui::Color32 = egui::Color32::from_rgb( 28, 130, 215); // sapphire → cobalt
 const MEM_END: egui::Color32 = egui::Color32::from_rgb(195,  75,  15); // amber → burnt umber
 
-// Bar heights
-const SPEC_H: f32 = 44.0;       // single-column cards
-const SPEC_H_2COL: f32 = 36.0;  // two-column cards (NET, TEMPS)
+const SPEC_H: f32 = 44.0;
+
+// Left-column pixel threshold below which stat text switches to abbreviated form
+const NARROW: f32 = 115.0;
 
 // ── Grid entry point ──────────────────────────────────────────────────────────
 
@@ -156,16 +156,17 @@ fn cpu_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
         let full_right = ui.max_rect().right();
         ui.set_max_width((ui.available_width() - RIGHT_W - 1.0).max(60.0));
 
+        let left_w = ui.available_width();
         card_hdr_no_val(ui, "CPU", &snap.cpu.brand, accent, subtle);
         zone_sep(ui, accent);
         spectrum_bars(ui, &app.disp_cpu, 100.0, accent, Some(CPU_END), SPEC_H, vu_color);
         zone_sep(ui, accent);
-        stat_line(
-            ui,
-            &format!("{} cores  ·  {} MHz", snap.cpu.logical_cores, snap.cpu.frequency_mhz),
-            &format!("{pct:.1}%"),
-            dim, subtle,
-        );
+        let cpu_left = if left_w < NARROW {
+            format!("{}c · {}M", snap.cpu.logical_cores, snap.cpu.frequency_mhz)
+        } else {
+            format!("{} cores  ·  {} MHz", snap.cpu.logical_cores, snap.cpu.frequency_mhz)
+        };
+        stat_line(ui, &cpu_left, &format!("{pct:.1}%"), dim, accent);
         draw_right_panel(ui, ui.min_rect(), full_right, RIGHT_W, &format!("{pct:.0}%"), "", val_color, dim, border);
     });
 }
@@ -186,16 +187,18 @@ fn memory_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
         let full_right = ui.max_rect().right();
         ui.set_max_width((ui.available_width() - RIGHT_W - 1.0).max(60.0));
 
+        let left_w = ui.available_width();
         card_hdr_no_val(ui, "MEM", &fmt_bytes(snap.memory.total_bytes), accent, subtle);
         zone_sep(ui, accent);
         spectrum_bars(ui, &app.disp_mem, 100.0, accent, Some(MEM_END), SPEC_H, vu_color);
         zone_sep(ui, accent);
-        stat_line(
-            ui,
-            &format!("{} used", fmt_bytes(snap.memory.used_bytes)),
-            &format!("{} free", fmt_bytes(snap.memory.available_bytes)),
-            dim, subtle,
-        );
+        let (mem_left, mem_right) = if left_w < NARROW {
+            (fmt_bytes(snap.memory.used_bytes), fmt_bytes(snap.memory.available_bytes))
+        } else {
+            (format!("{} used", fmt_bytes(snap.memory.used_bytes)),
+             format!("{} free", fmt_bytes(snap.memory.available_bytes)))
+        };
+        stat_line(ui, &mem_left, &mem_right, dim, accent);
         draw_right_panel(ui, ui.min_rect(), full_right, RIGHT_W, &format!("{pct:.0}%"), "", val_color, dim, border);
     });
 }
@@ -208,31 +211,34 @@ fn fps_card(app: &mut MonitorApp, ui: &mut Ui, fps: &FpsSnapshot) {
     let dim       = app.theme.text_dim;
     let border    = app.theme.card_border;
 
-    let val_color = if !fps.active   { dim }
+    let val_color = if !fps.active         { dim }
                    else if fps.fps >= 60.0 { app.theme.ok }
                    else if fps.fps >= 30.0 { app.theme.warn }
                    else                    { app.theme.crit };
-    let big_num   = if fps.active { format!("{:.0}", fps.fps) } else { "—".into() };
-    let unit      = if fps.active { "fps" } else { "" };
-    let ft        = if fps.active && fps.fps > 0.0 { format!("{:.1} ms", 1000.0 / fps.fps) } else { String::new() };
+    let big_num = if fps.active { format!("{:.0}", fps.fps) } else { "—".into() };
+    let unit    = if fps.active { "fps" } else { "" };
+    let ft      = if fps.active && fps.fps > 0.0 { format!("{:.1} ms", 1000.0 / fps.fps) } else { String::new() };
 
     glow_card(ui, &app.theme, accent, |ui| {
         ui.spacing_mut().item_spacing.y = 3.0;
         const RIGHT_W: f32 = 65.0;
         let full_right = ui.max_rect().right();
         ui.set_max_width((ui.available_width() - RIGHT_W - 1.0).max(60.0));
+        let left_w = ui.available_width();
 
-        if !fps.active {
-            card_hdr_no_val(ui, "FPS", "no game detected", accent, dim);
-            zone_sep(ui, accent);
-            ui.label(egui::RichText::new("Switch to a DirectX / Vulkan window").color(dim).size(10.0));
+        let subtitle  = if fps.active { truncate(&fps.window_title, 18) } else { "no game".into() };
+        let sub_color = if fps.active { subtle } else { dim };
+        card_hdr_no_val(ui, "FPS", &subtitle, accent, sub_color);
+        zone_sep(ui, accent);
+        spectrum_bars(ui, &app.disp_fps, 120.0, accent, None, SPEC_H, fps_color);
+        zone_sep(ui, accent);
+        let (stat_left, stat_right, stat_color) = if fps.active {
+            let chars = if left_w < NARROW { 10 } else { 26 };
+            (truncate(&fps.window_title, chars), ft, accent)
         } else {
-            card_hdr_no_val(ui, "FPS", &truncate(&fps.window_title, 18), accent, subtle);
-            zone_sep(ui, accent);
-            spectrum_bars(ui, &app.disp_fps, 120.0, accent, None, SPEC_H, fps_color);
-            zone_sep(ui, accent);
-            stat_line(ui, &truncate(&fps.window_title, 26), &ft, dim, subtle);
-        }
+            ("waiting for game".into(), String::new(), dim)
+        };
+        stat_line(ui, &stat_left, &stat_right, dim, stat_color);
 
         draw_right_panel(ui, ui.min_rect(), full_right, RIGHT_W, &big_num, unit, val_color, dim, border);
     });
@@ -247,15 +253,16 @@ fn gpu_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
     let border    = app.theme.card_border;
 
     let pct       = snap.gpu.utilization_percent.unwrap_or(0.0);
-    let val_color = app.theme.health_color(pct, 70.0, 90.0);
     let big_val   = if !snap.gpu.available {
         "—".into()
     } else {
         snap.gpu.utilization_percent
             .map(|p| format!("{p:.0}%"))
-            .unwrap_or_else(|| "N/A".into())
+            .unwrap_or_else(|| "—".into())
     };
-    let big_color = if snap.gpu.available && snap.gpu.utilization_percent.is_some() { val_color } else { dim };
+    let big_color = if snap.gpu.available && snap.gpu.utilization_percent.is_some() {
+        app.theme.health_color(pct, 70.0, 90.0)
+    } else { dim };
 
     glow_card(ui, &app.theme, accent, |ui| {
         ui.spacing_mut().item_spacing.y = 3.0;
@@ -263,21 +270,25 @@ fn gpu_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
         let full_right = ui.max_rect().right();
         ui.set_max_width((ui.available_width() - RIGHT_W - 1.0).max(60.0));
 
-        if !snap.gpu.available {
-            card_hdr_no_val(ui, "GPU", "unavailable", accent, dim);
-            zone_sep(ui, accent);
-            ui.label(egui::RichText::new("WMI data not available").color(dim).size(10.0));
-        } else {
-            card_hdr_no_val(ui, "GPU", &snap.gpu.name, accent, subtle);
-            zone_sep(ui, accent);
-            spectrum_bars(ui, &app.disp_gpu, 100.0, accent, None, SPEC_H, vu_color);
+        let subtitle  = if snap.gpu.available { snap.gpu.name.as_str() } else { "unavailable" };
+        let sub_color = if snap.gpu.available { subtle } else { dim };
+        card_hdr_no_val(ui, "GPU", subtitle, accent, sub_color);
+        zone_sep(ui, accent);
+        spectrum_bars(ui, &app.disp_gpu, 100.0, accent, None, SPEC_H, vu_color);
+        zone_sep(ui, accent);
+        if snap.gpu.available {
             let vram_str = if snap.gpu.vram_total_bytes > 0 {
                 format!("{} / {}", fmt_bytes(snap.gpu.vram_used_bytes), fmt_bytes(snap.gpu.vram_total_bytes))
             } else { String::new() };
             let temp_str = snap.gpu.temperature_celsius.map(|t| format!("{t:.0}°C")).unwrap_or_default();
-            let right = [&vram_str, &temp_str].iter().filter(|s| !s.is_empty()).map(|s| s.as_str()).collect::<Vec<_>>().join("  ·  ");
-            zone_sep(ui, accent);
-            stat_line(ui, "VRAM", &right, dim, subtle);
+            let right = [&vram_str, &temp_str].iter()
+                .filter(|s| !s.is_empty())
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join("  ·  ");
+            stat_line(ui, "VRAM", &right, dim, accent);
+        } else {
+            stat_line(ui, "no GPU data", "", dim, dim);
         }
 
         draw_right_panel(ui, ui.min_rect(), full_right, RIGHT_W, &big_val, "", big_color, dim, border);
@@ -287,61 +298,27 @@ fn gpu_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
 // ── Network ───────────────────────────────────────────────────────────────────
 
 fn network_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
-    let acc_tx = app.theme.accent_net;   // green — upload
-    let acc_rx = app.theme.accent_cpu;   // cyan  — download
+    let accent = app.theme.accent_net;
     let subtle = app.theme.text_subtle;
-    let dim = app.theme.text_dim;
+    let dim    = app.theme.text_dim;
+    let border = app.theme.card_border;
 
-    // Use raw history for peak scaling (not lerped values) so scale is accurate
-    let tx_max = app.hist_tx.as_vec().iter().cloned().fold(8_000.0f64, f64::max) as f32;
     let rx_max = app.hist_rx.as_vec().iter().cloned().fold(8_000.0f64, f64::max) as f32;
+    let (rx_num, rx_unit) = fmt_bps_parts(snap.network.total_rx_bps);
 
-    glow_card(ui, &app.theme, acc_tx, |ui| {
+    glow_card(ui, &app.theme, accent, |ui| {
         ui.spacing_mut().item_spacing.y = 3.0;
+        const RIGHT_W: f32 = 65.0;
+        let full_right = ui.max_rect().right();
+        ui.set_max_width((ui.available_width() - RIGHT_W - 1.0).max(60.0));
 
-        // Header — TX↑ and RX↓ values
-        ui.horizontal(|ui| {
-            let (r, _) = ui.allocate_exact_size(Vec2::new(3.0, 14.0), Sense::hover());
-            ui.painter().rect_filled(r, Rounding::same(1.5), acc_tx);
-            ui.add_space(5.0);
-            ui.label(egui::RichText::new("NET").color(acc_tx).size(11.5).strong());
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(
-                    egui::RichText::new(fmt_bps(snap.network.total_rx_bps))
-                        .color(acc_rx)
-                        .monospace()
-                        .size(11.0),
-                );
-                ui.label(egui::RichText::new("↓").color(subtle).size(10.0));
-                ui.add_space(6.0);
-                ui.label(
-                    egui::RichText::new(fmt_bps(snap.network.total_tx_bps))
-                        .color(acc_tx)
-                        .monospace()
-                        .size(11.0),
-                );
-                ui.label(egui::RichText::new("↑").color(subtle).size(10.0));
-            });
-        });
-        zone_sep(ui, acc_tx);
+        card_hdr_no_val(ui, "NET", "↓ download", accent, subtle);
+        zone_sep(ui, accent);
+        spectrum_bars(ui, &app.disp_rx, rx_max, accent, None, SPEC_H, vu_color);
+        zone_sep(ui, accent);
+        stat_line(ui, "↑ upload", &fmt_bps(snap.network.total_tx_bps), dim, accent);
 
-        // Sub-labels
-        ui.horizontal(|ui| {
-            let half = ui.available_width() / 2.0;
-            ui.label(egui::RichText::new("▲ TX").color(acc_tx).size(9.5));
-            ui.add_space(half - 32.0);
-            ui.label(egui::RichText::new("▼ RX").color(acc_rx).size(9.5));
-        });
-
-        // Two spectrum panels side by side
-        let disp_tx = app.disp_tx.clone();
-        let disp_rx = app.disp_rx.clone();
-        ui.columns(2, |cols| {
-            spectrum_bars(&mut cols[0], &disp_tx, tx_max, acc_tx, None, SPEC_H_2COL, vu_color);
-            spectrum_bars(&mut cols[1], &disp_rx, rx_max, acc_rx, None, SPEC_H_2COL, vu_color);
-        });
-
-        stat_line(ui, "peak TX", &fmt_bps(tx_max as u64), dim, subtle);
+        draw_right_panel(ui, ui.min_rect(), full_right, RIGHT_W, &rx_num, rx_unit, accent, dim, border);
     });
 }
 
@@ -349,60 +326,39 @@ fn network_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
 
 fn disk_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
     let accent = app.theme.accent_disk;
-    let dim = app.theme.text_dim;
+    let subtle = app.theme.text_subtle;
+    let dim    = app.theme.text_dim;
+    let border = app.theme.card_border;
+
+    let (val_color, big_val, subtitle, stat_left, stat_right) =
+        if let Some(disk) = snap.disks.first() {
+            let pct       = disk.usage_percent();
+            let val_color = app.theme.health_color(pct, 75.0, 90.0);
+            let free      = disk.total_bytes.saturating_sub(disk.used_bytes);
+            let stat_right = if snap.disks.len() > 1 {
+                format!("+{} more", snap.disks.len() - 1)
+            } else {
+                format!("{} free", fmt_bytes(free))
+            };
+            (val_color, format!("{pct:.0}%"), disk.mount.clone(),
+             format!("{} used", fmt_bytes(disk.used_bytes)), stat_right)
+        } else {
+            (dim, "—".into(), String::new(), "no disks found".into(), String::new())
+        };
 
     glow_card(ui, &app.theme, accent, |ui| {
         ui.spacing_mut().item_spacing.y = 3.0;
+        const RIGHT_W: f32 = 65.0;
+        let full_right = ui.max_rect().right();
+        ui.set_max_width((ui.available_width() - RIGHT_W - 1.0).max(60.0));
 
-        ui.horizontal(|ui| {
-            let (r, _) = ui.allocate_exact_size(Vec2::new(3.0, 14.0), Sense::hover());
-            ui.painter().rect_filled(r, Rounding::same(1.5), accent);
-            ui.add_space(5.0);
-            ui.label(egui::RichText::new("DISKS").color(accent).size(11.5).strong());
-        });
+        card_hdr_no_val(ui, "DISK", &subtitle, accent, subtle);
         zone_sep(ui, accent);
+        spectrum_bars(ui, &app.disp_disk, 100.0, accent, None, SPEC_H, vu_color);
+        zone_sep(ui, accent);
+        stat_line(ui, &stat_left, &stat_right, dim, accent);
 
-        if snap.disks.is_empty() {
-            ui.label(egui::RichText::new("No disks found").color(dim).size(10.0));
-            return;
-        }
-
-        for disk in snap.disks.iter().take(3) {
-            let pct = disk.usage_percent();
-            let val_color = app.theme.health_color(pct, 75.0, 90.0);
-
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(&disk.mount)
-                        .color(accent)
-                        .monospace()
-                        .size(10.0)
-                        .strong(),
-                );
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{:.0}%  {} / {}",
-                            pct,
-                            fmt_bytes(disk.used_bytes),
-                            fmt_bytes(disk.total_bytes),
-                        ))
-                        .color(val_color)
-                        .monospace()
-                        .size(9.5),
-                    );
-                });
-            });
-            gradient_bar(ui, pct, 5.0, accent, Theme::dim(accent));
-        }
-
-        if snap.disks.len() > 3 {
-            ui.label(
-                egui::RichText::new(format!("+ {} more", snap.disks.len() - 3))
-                    .color(dim)
-                    .size(9.5),
-            );
-        }
+        draw_right_panel(ui, ui.min_rect(), full_right, RIGHT_W, &big_val, "", val_color, dim, border);
     });
 }
 
@@ -411,81 +367,36 @@ fn disk_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
 fn temps_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
     let accent = app.theme.accent_temp;
     let subtle = app.theme.text_subtle;
-    let dim = app.theme.text_dim;
+    let dim    = app.theme.text_dim;
+    let border = app.theme.card_border;
+
+    let has_data  = snap.temps.cpu_celsius.is_some() || snap.temps.gpu_celsius.is_some();
+    let cpu_big   = snap.temps.cpu_celsius.map(|t| format!("{t:.0}")).unwrap_or_else(|| "—".into());
+    let cpu_unit  = if snap.temps.cpu_celsius.is_some() { "°C" } else { "" };
+    let cpu_color = snap.temps.cpu_celsius
+        .map(|t| app.theme.health_color(t, 70.0, 85.0))
+        .unwrap_or(dim);
 
     glow_card(ui, &app.theme, accent, |ui| {
         ui.spacing_mut().item_spacing.y = 3.0;
+        const RIGHT_W: f32 = 65.0;
+        let full_right = ui.max_rect().right();
+        ui.set_max_width((ui.available_width() - RIGHT_W - 1.0).max(60.0));
 
-        ui.horizontal(|ui| {
-            let (r, _) = ui.allocate_exact_size(Vec2::new(3.0, 14.0), Sense::hover());
-            ui.painter().rect_filled(r, Rounding::same(1.5), accent);
-            ui.add_space(5.0);
-            ui.label(egui::RichText::new("TEMPS").color(accent).size(11.5).strong());
-
-            if let (Some(tc), Some(tg)) = (snap.temps.cpu_celsius, snap.temps.gpu_celsius) {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new(format!("{tg:.0}°"))
-                            .color(app.theme.health_color(tg, 75.0, 90.0))
-                            .monospace()
-                            .size(13.5)
-                            .strong(),
-                    );
-                    ui.label(egui::RichText::new("GPU").color(subtle).size(10.0));
-                    ui.add_space(8.0);
-                    ui.label(
-                        egui::RichText::new(format!("{tc:.0}°"))
-                            .color(app.theme.health_color(tc, 70.0, 85.0))
-                            .monospace()
-                            .size(13.5)
-                            .strong(),
-                    );
-                    ui.label(egui::RichText::new("CPU").color(subtle).size(10.0));
-                });
-            } else if let Some(tc) = snap.temps.cpu_celsius {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new(format!("{tc:.0}°"))
-                            .color(app.theme.health_color(tc, 70.0, 85.0))
-                            .monospace()
-                            .size(13.5)
-                            .strong(),
-                    );
-                    ui.label(egui::RichText::new("CPU").color(subtle).size(10.0));
-                });
-            }
-        });
+        let subtitle  = if has_data { "CPU & GPU" } else { "no sensor data" };
+        let sub_color = if has_data { subtle } else { dim };
+        card_hdr_no_val(ui, "TEMP", subtitle, accent, sub_color);
+        zone_sep(ui, accent);
+        spectrum_bars(ui, &app.disp_temp_cpu, 100.0, accent, None, SPEC_H, vu_color);
         zone_sep(ui, accent);
 
-        if snap.temps.cpu_celsius.is_none() && snap.temps.gpu_celsius.is_none() {
-            ui.label(
-                egui::RichText::new("Run as Administrator for sensor access")
-                    .color(dim)
-                    .size(10.0),
-            );
-            return;
-        }
+        let gpu_str   = snap.temps.gpu_celsius.map(|t| format!("{t:.0}°C")).unwrap_or_else(|| "—".into());
+        let gpu_color = snap.temps.gpu_celsius
+            .map(|t| app.theme.health_color(t, 75.0, 90.0))
+            .unwrap_or(dim);
+        stat_line(ui, "GPU", &gpu_str, dim, gpu_color);
 
-        // Sub-labels
-        ui.horizontal(|ui| {
-            let half = ui.available_width() / 2.0;
-            ui.label(egui::RichText::new("CPU °C").color(app.theme.accent_cpu).size(9.5));
-            ui.add_space(half - 40.0);
-            ui.label(egui::RichText::new("GPU °C").color(app.theme.accent_gpu).size(9.5));
-        });
-
-        let cpu_disp = app.disp_temp_cpu.clone();
-        let gpu_disp = app.disp_temp_gpu.clone();
-        let cpu_col = app.theme.accent_cpu;
-        let gpu_col = app.theme.accent_gpu;
-        ui.columns(2, |cols| {
-            if !cpu_disp.is_empty() {
-                spectrum_bars(&mut cols[0], &cpu_disp, 100.0, cpu_col, None, SPEC_H_2COL, vu_color);
-            }
-            if !gpu_disp.is_empty() {
-                spectrum_bars(&mut cols[1], &gpu_disp, 100.0, gpu_col, None, SPEC_H_2COL, vu_color);
-            }
-        });
+        draw_right_panel(ui, ui.min_rect(), full_right, RIGHT_W, &cpu_big, cpu_unit, cpu_color, dim, border);
     });
 }
 

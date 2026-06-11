@@ -1,5 +1,6 @@
 //! UI rendering — called once per frame from [`crate::app::MonitorApp::update`].
 
+mod about;
 mod cards;
 mod titlebar;
 mod widgets;
@@ -22,11 +23,12 @@ pub fn draw(
     let bg = app.theme.bg;
 
     let always_on_top = &mut app.always_on_top;
+    let show_about = &mut app.show_about;
     TopBottomPanel::top("titlebar")
         .exact_height(36.0)
         .frame(Frame::none().fill(tb_bg))
         .show(ctx, |ui| {
-            titlebar::show(ui, ctx, &app.theme, always_on_top);
+            titlebar::show(ui, ctx, &app.theme, always_on_top, show_about);
         });
 
     CentralPanel::default()
@@ -34,6 +36,9 @@ pub fn draw(
         .show(ctx, |ui| {
             cards::show_grid(app, ui, snap, fps);
         });
+
+    // About overlay — drawn above everything else
+    about::show(ctx, &app.theme, &mut app.show_about);
 
     // Resize handles — invisible edge/corner hit-zones around the window.
     // The title bar (top 36 px) is excluded; N/NE/NW are skipped to avoid

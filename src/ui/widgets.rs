@@ -1,44 +1,40 @@
 //! Reusable low-level widgets: spectrum bars, gradient bar, sparkline, dot gauge.
 
 use egui::{
-    Color32, Frame, Margin, Rect, Rounding, Sense, Stroke, Ui, Vec2,
+    Color32, Frame, Margin, Mesh, Rect, Rounding, Sense, Shape, Stroke, Ui, Vec2,
 };
 
 use crate::theme::Theme;
 
 // ── Spectrum bar panel ────────────────────────────────────────────────────────
 
-/// Renders the history as a mini spectrum analyser panel:
-/// glowing bars + bright cap + two-tier reflection + peak-hold dots at local maxima.
+/// Renders history as a smooth filled-area curve with a neon glow line on top.
 ///
-/// `max_val`    — value that maps to full bar height (e.g. 100.0 for percentages).
-/// `accent_end` — when `Some`, bars get a left→right colour gradient from `accent` to `accent_end`.
-/// `color_fn`   — either [`vu_color`] (high = warn) or [`fps_color`] (high = good).
+/// `max_val`    — value that maps to full height (e.g. 100.0 for percentages).
+/// `accent_end` — kept for API compatibility, unused in line mode.
+/// `color_fn`   — determines line/fill color from latest value's health (vu or fps).
 pub fn spectrum_bars(
     ui: &mut Ui,
     hist: &[f64],
     max_val: f32,
     accent: Color32,
-    accent_end: Option<Color32>,
+    _accent_end: Option<Color32>,
     height: f32,
     color_fn: fn(f32, Color32) -> Color32,
 ) {
     let n = hist.len();
-    if n == 0 {
-        return;
-    }
 
+    // Always allocate the full zone so card height is static regardless of data state.
     let avail_w = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(Vec2::new(avail_w, height), Sense::hover());
+
+    if n < 2 { return; }
+
     let painter = ui.painter();
 
-    let gap = 1.5f32;
-    let bar_w = ((avail_w + gap) / n as f32 - gap).max(1.0);
-
-    // Floor splits the rect: top 65 % = bars, bottom 35 % = reflection
-    let split_y = rect.min.y + rect.height() * 0.65;
+    // top 65% = signal area, bottom 35% = reflection zone
+    let split_y    = rect.min.y + rect.height() * 0.65;
     let bar_h_range = split_y - rect.min.y;
-    let refl_h_range = rect.max.y - split_y;
 
     // Faint grid lines at 25 / 50 / 75 %
     for frac in [0.25f32, 0.50, 0.75] {
@@ -49,124 +45,124 @@ pub fn spectrum_bars(
         );
     }
 
-    let n_frac = n.saturating_sub(1).max(1) as f32;
-
-    for (i, &v) in hist.iter().enumerate() {
+    // Map samples evenly across the full width
+    let step = avail_w / (n - 1) as f32;
+    let raw: Vec<egui::Pos2> = hist.iter().enumerate().map(|(i, &v)| {
         let norm = (v as f32 / max_val).clamp(0.0, 1.0);
-        if norm < 0.005 {
-            continue;
-        }
+        egui::pos2(
+            rect.min.x + i as f32 * step,
+            (split_y - norm * bar_h_range).clamp(rect.min.y, split_y),
+        )
+    }).collect();
 
-        // Left→right colour gradient when accent_end is supplied
-        let bar_accent = match accent_end {
-            Some(end) => sp_lerp_color(accent, end, i as f32 / n_frac),
-            None => accent,
-        };
+    // Catmull-Rom smooth curve (6 sub-points per segment)
+    let curve: Vec<egui::Pos2> = cr_smooth(&raw, 6)
+        .into_iter()
+        .map(|p| egui::pos2(p.x, p.y.clamp(rect.min.y, split_y)))
+        .collect();
 
-        let bar_h = norm * bar_h_range;
-        let x = rect.min.x + i as f32 * (bar_w + gap);
-        let bar_top = split_y - bar_h;
-        let color = color_fn(norm, bar_accent);
+    // Health-aware color — always at full brightness so line is vivid at any load
+    let latest_norm = hist.last().map(|&v| (v as f32 / max_val).clamp(0.0, 1.0)).unwrap_or(0.0);
+    let hc = color_fn(latest_norm.max(0.18), accent);
+    let [r, g, b, _] = hc.to_array();
 
-        // Glow halos — 3 expanding layers
-        for g in 0..3usize {
-            let spread = (g + 1) as f32 * 1.8;
-            let alpha = ((color.a() as f32) * 0.15 / (g + 1) as f32) as u8;
-            let gc = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
-            painter.rect_filled(
-                Rect::from_min_size(
-                    egui::pos2(x - spread, bar_top - spread * 0.4),
-                    Vec2::new(bar_w + spread * 2.0, bar_h + spread * 0.4),
-                ),
-                3.0,
-                gc,
-            );
-        }
+    // Gradient fill: accent at curve → transparent at split_y
+    fill_gradient(&painter, &curve, split_y, r, g, b, 62);
 
-        // Main bar body
-        painter.rect_filled(
-            Rect::from_min_size(egui::pos2(x, bar_top), Vec2::new(bar_w, bar_h)),
-            2.0,
-            color,
-        );
+    // Reflection: compressed mirror below split_y, much lower alpha
+    let refl: Vec<egui::Pos2> = curve.iter().map(|p| {
+        let dist = (split_y - p.y).max(0.0);
+        egui::pos2(p.x, (split_y + dist * 0.28).min(rect.max.y))
+    }).collect();
+    fill_gradient_inv(&painter, &refl, split_y, r, g, b, 18);
 
-        // Bright cap at the top of each bar
-        let cap_h = (bar_h * 0.05).clamp(1.5, 3.5);
-        painter.rect_filled(
-            Rect::from_min_size(egui::pos2(x, bar_top), Vec2::new(bar_w, cap_h)),
-            1.0,
-            sp_lighten(color, 0.75),
-        );
-
-        // Reflection — two-tier fade (28 % + 9 % opacity)
-        let rh = (norm * refl_h_range * 0.82).min(refl_h_range);
-        if rh > 0.5 {
-            let half = rh * 0.5;
-            painter.rect_filled(
-                Rect::from_min_size(egui::pos2(x, split_y), Vec2::new(bar_w, half)),
-                1.0,
-                Color32::from_rgba_unmultiplied(
-                    color.r(), color.g(), color.b(),
-                    (color.a() as f32 * 0.28) as u8,
-                ),
-            );
-            painter.rect_filled(
-                Rect::from_min_size(egui::pos2(x, split_y + half), Vec2::new(bar_w, rh - half)),
-                1.0,
-                Color32::from_rgba_unmultiplied(
-                    color.r(), color.g(), color.b(),
-                    (color.a() as f32 * 0.09) as u8,
-                ),
-            );
-        }
+    // Neon glow line — wide soft halo → medium → inner → bright core
+    for &(w, a) in &[(9.0f32, 9u8), (4.5, 22), (2.2, 58), (1.1, 225)] {
+        painter.add(Shape::line(
+            curve.clone(),
+            Stroke::new(w, Color32::from_rgba_unmultiplied(r, g, b, a)),
+        ));
     }
 
-    // Peak-hold dots — white-ish 2 px rect above each local maximum
-    for i in 1..n.saturating_sub(1) {
-        if hist[i] > hist[i - 1] && hist[i] >= hist[i + 1] {
-            let norm = (hist[i] as f32 / max_val).clamp(0.0, 1.0);
-            if norm < 0.06 {
-                continue;
-            }
-            let x = rect.min.x + i as f32 * (bar_w + gap);
-            let py = split_y - norm * bar_h_range - 3.5;
-            painter.rect_filled(
-                Rect::from_min_size(egui::pos2(x, py), Vec2::new(bar_w, 2.0)),
-                0.0,
-                sp_lighten(color_fn(norm, accent), 0.88),
-            );
-        }
-    }
-
-    // Live value line — horizontal rule at the level of the most recent sample.
-    // Animates smoothly because hist is a lerped display buffer.
-    if let Some(&last) = hist.last() {
-        let norm = (last as f32 / max_val).clamp(0.0, 1.0);
-        if norm > 0.02 {
-            let y = split_y - norm * bar_h_range;
-            let lc = color_fn(norm, accent);
-            // Dim rule across full width
-            painter.line_segment(
-                [egui::pos2(rect.min.x, y), egui::pos2(rect.max.x, y)],
-                Stroke::new(0.75, Color32::from_rgba_unmultiplied(lc.r(), lc.g(), lc.b(), 55)),
-            );
-            // Bright notch on the right edge — "needle" indicator
-            painter.rect_filled(
-                Rect::from_min_size(
-                    egui::pos2(rect.max.x - 4.0, y - 1.5),
-                    Vec2::new(4.0, 3.0),
-                ),
-                1.0,
-                Color32::from_rgba_unmultiplied(lc.r(), lc.g(), lc.b(), 200),
-            );
-        }
-    }
-
-    // Floor separator line (accent-tinted)
+    // Floor separator
     painter.line_segment(
         [egui::pos2(rect.min.x, split_y), egui::pos2(rect.max.x, split_y)],
-        Stroke::new(1.0, Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 40)),
+        Stroke::new(1.0, Color32::from_rgba_unmultiplied(r, g, b, 40)),
     );
+}
+
+// ── Curve helpers ─────────────────────────────────────────────────────────────
+
+/// Catmull-Rom spline: `subdiv` sub-points between every pair of input points.
+fn cr_smooth(pts: &[egui::Pos2], subdiv: usize) -> Vec<egui::Pos2> {
+    let n = pts.len();
+    if n < 2 { return pts.to_vec(); }
+    let mut out = Vec::with_capacity((n - 1) * subdiv + 1);
+    for i in 0..n - 1 {
+        let p0 = if i == 0 { pts[0] } else { pts[i - 1] };
+        let p1 = pts[i];
+        let p2 = pts[i + 1];
+        let p3 = if i + 2 >= n { pts[n - 1] } else { pts[i + 2] };
+        for j in 0..subdiv {
+            let t = j as f32 / subdiv as f32;
+            out.push(cr_pt(p0, p1, p2, p3, t));
+        }
+    }
+    out.push(*pts.last().unwrap());
+    out
+}
+
+fn cr_pt(p0: egui::Pos2, p1: egui::Pos2, p2: egui::Pos2, p3: egui::Pos2, t: f32) -> egui::Pos2 {
+    let t2 = t * t;
+    let t3 = t2 * t;
+    let f = |a: f32, b: f32, c: f32, d: f32| {
+        0.5 * ((2.0 * b) + (-a + c) * t + (2.0*a - 5.0*b + 4.0*c - d) * t2 + (-a + 3.0*b - 3.0*c + d) * t3)
+    };
+    egui::pos2(f(p0.x, p1.x, p2.x, p3.x), f(p0.y, p1.y, p2.y, p3.y))
+}
+
+/// Fills the area between `curve` and `floor_y` with a top→transparent gradient mesh.
+fn fill_gradient(painter: &egui::Painter, curve: &[egui::Pos2], floor_y: f32, r: u8, g: u8, b: u8, alpha: u8) {
+    if curve.len() < 2 { return; }
+    let top_c = Color32::from_rgba_unmultiplied(r, g, b, alpha);
+    let bot_c = Color32::from_rgba_unmultiplied(r, g, b, 0);
+    let mut mesh = Mesh::default();
+    for i in 0..curve.len() - 1 {
+        let (p0, p1) = (curve[i], curve[i + 1]);
+        let base = mesh.vertices.len() as u32;
+        for &(pos, col) in &[
+            (egui::pos2(p0.x, p0.y), top_c),
+            (egui::pos2(p1.x, p1.y), top_c),
+            (egui::pos2(p1.x, floor_y), bot_c),
+            (egui::pos2(p0.x, floor_y), bot_c),
+        ] {
+            mesh.vertices.push(egui::epaint::Vertex { pos, uv: egui::pos2(0.0, 0.0), color: col });
+        }
+        mesh.indices.extend_from_slice(&[base, base+1, base+2, base, base+2, base+3]);
+    }
+    painter.add(Shape::Mesh(mesh));
+}
+
+/// Fills the area between `ceil_y` and the (reflected) `curve` — transparent at bottom.
+fn fill_gradient_inv(painter: &egui::Painter, curve: &[egui::Pos2], ceil_y: f32, r: u8, g: u8, b: u8, alpha: u8) {
+    if curve.len() < 2 { return; }
+    let top_c = Color32::from_rgba_unmultiplied(r, g, b, alpha);
+    let bot_c = Color32::from_rgba_unmultiplied(r, g, b, 0);
+    let mut mesh = Mesh::default();
+    for i in 0..curve.len() - 1 {
+        let (p0, p1) = (curve[i], curve[i + 1]);
+        let base = mesh.vertices.len() as u32;
+        for &(pos, col) in &[
+            (egui::pos2(p0.x, ceil_y), top_c),
+            (egui::pos2(p1.x, ceil_y), top_c),
+            (egui::pos2(p1.x, p1.y),   bot_c),
+            (egui::pos2(p0.x, p0.y),   bot_c),
+        ] {
+            mesh.vertices.push(egui::epaint::Vertex { pos, uv: egui::pos2(0.0, 0.0), color: col });
+        }
+        mesh.indices.extend_from_slice(&[base, base+1, base+2, base, base+2, base+3]);
+    }
+    painter.add(Shape::Mesh(mesh));
 }
 
 // ── VU colour functions ───────────────────────────────────────────────────────
@@ -206,10 +202,6 @@ pub fn fps_color(norm: f32, accent: Color32) -> Color32 {
 
 // ── Private colour helpers ────────────────────────────────────────────────────
 
-fn sp_lighten(c: Color32, t: f32) -> Color32 {
-    sp_lerp_color(c, Color32::WHITE, t)
-}
-
 fn sp_lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     Color32::from_rgb(
         sp_lerp_u8(a.r(), b.r(), t),
@@ -241,7 +233,14 @@ pub fn glow_card<R>(
     accent: Color32,
     add_contents: impl FnOnce(&mut Ui) -> R,
 ) -> R {
-    let resp = compact_card_frame(theme).show(ui, add_contents);
+    let resp = compact_card_frame(theme).show(ui, |inner_ui| {
+        // Lock minimum width to the full available width BEFORE the card calls
+        // set_max_width to split left content from the right panel.  Without
+        // this the frame background only covers the left column and the right
+        // panel numbers float outside the card border.
+        inner_ui.set_min_width(inner_ui.available_width());
+        add_contents(inner_ui)
+    });
     let rect = resp.response.rect;
     let hovered = ui.rect_contains_pointer(rect);
 

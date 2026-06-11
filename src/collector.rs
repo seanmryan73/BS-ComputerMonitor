@@ -52,11 +52,11 @@ fn run(snapshot: Arc<RwLock<SystemSnapshot>>) {
         components.refresh();
 
         #[cfg(windows)]
-        let gpu = gpu_win::collect(&mut gpu_col);
+        let (gpu, acpi_cpu_temp) = gpu_win::collect(&mut gpu_col);
         #[cfg(not(windows))]
-        let gpu = GpuSnapshot::default();
+        let (gpu, acpi_cpu_temp) = (GpuSnapshot::default(), None::<f32>);
 
-        let new_snap = build(&sys, &disks, &networks, &components, gpu);
+        let new_snap = build(&sys, &disks, &networks, &components, gpu, acpi_cpu_temp);
 
         if let Ok(mut guard) = snapshot.write() {
             *guard = new_snap;
@@ -75,6 +75,7 @@ fn build(
     networks: &Networks,
     components: &Components,
     gpu: GpuSnapshot,
+    acpi_cpu_temp: Option<f32>,
 ) -> SystemSnapshot {
     // ── CPU ──────────────────────────────────────────────────────────────────
     let cpus = sys.cpus();
@@ -118,9 +119,10 @@ fn build(
     let interfaces = networks
         .iter()
         .map(|(name, data)| {
-            // sysinfo gives delta bytes since last refresh.
-            let rx = data.received() / INTERVAL.as_secs().max(1);
-            let tx = data.transmitted() / INTERVAL.as_secs().max(1);
+            // sysinfo gives delta bytes since last refresh; convert to bytes/sec.
+            let secs = INTERVAL.as_secs_f64().max(0.001);
+            let rx = (data.received() as f64 / secs) as u64;
+            let tx = (data.transmitted() as f64 / secs) as u64;
             total_rx += rx;
             total_tx += tx;
             NetInterface {
@@ -138,13 +140,16 @@ fn build(
     };
 
     // ── Temperatures ──────────────────────────────────────────────────────────
-    let cpu_temp = components
-        .iter()
-        .find(|c| {
-            let lbl = c.label().to_lowercase();
-            lbl.contains("package") || lbl.contains("cpu") || lbl.contains("core 0")
-        })
-        .map(|c| c.temperature());
+    // Prefer ACPI thermal zones (no-admin) → fall back to sysinfo components (admin).
+    let cpu_temp = acpi_cpu_temp.or_else(|| {
+        components
+            .iter()
+            .find(|c| {
+                let lbl = c.label().to_lowercase();
+                lbl.contains("package") || lbl.contains("cpu") || lbl.contains("core 0")
+            })
+            .map(|c| c.temperature())
+    });
 
     let gpu_temp = gpu.temperature_celsius.or_else(|| {
         components
@@ -180,6 +185,8 @@ mod gpu_win {
     pub struct GpuCollector {
         com: Option<COMLibrary>,
         conn: Option<WMIConnection>,
+        /// Second connection to root\WMI for ACPI thermal zones (no admin needed).
+        thermal_conn: Option<WMIConnection>,
         /// Cached GPU name and VRAM from Win32_VideoController (rarely changes)
         cached_name: String,
         cached_vram: u64,
@@ -190,16 +197,21 @@ mod gpu_win {
             let mut col = Self {
                 com: None,
                 conn: None,
+                thermal_conn: None,
                 cached_name: String::new(),
                 cached_vram: 0,
             };
             // Best-effort initialisation; silently degrade if COM unavailable.
             if let Ok(com) = COMLibrary::new() {
                 if let Ok(conn) = WMIConnection::new(com.clone()) {
-                    col.com = Some(com);
                     col.conn = Some(conn);
                     col.refresh_static();
                 }
+                // root\WMI holds MSAcpi_ThermalZoneTemperature — readable without admin.
+                if let Ok(tc) = WMIConnection::with_namespace_path("ROOT\\WMI", com.clone()) {
+                    col.thermal_conn = Some(tc);
+                }
+                col.com = Some(com);
             }
             col
         }
@@ -235,21 +247,48 @@ mod gpu_win {
         }
     }
 
-    pub fn collect(col: &mut GpuCollector) -> GpuSnapshot {
-        if col.conn.is_none() {
-            return GpuSnapshot::default();
-        }
+    /// Returns `(GpuSnapshot, acpi_cpu_temp)`.
+    /// `acpi_cpu_temp` is read from `MSAcpi_ThermalZoneTemperature` (no admin required).
+    pub fn collect(col: &mut GpuCollector) -> (GpuSnapshot, Option<f32>) {
+        let gpu = if col.conn.is_some() {
+            let utilization = query_utilization(col);
+            GpuSnapshot {
+                name: col.cached_name.clone(),
+                utilization_percent: utilization,
+                vram_used_bytes: 0,
+                vram_total_bytes: col.cached_vram,
+                temperature_celsius: None,
+                available: !col.cached_name.is_empty(),
+            }
+        } else {
+            GpuSnapshot::default()
+        };
+        let cpu_temp = query_acpi_cpu_temp(col);
+        (gpu, cpu_temp)
+    }
 
-        let utilization = query_utilization(col);
+    /// Queries MSAcpi_ThermalZoneTemperature in root\WMI.
+    /// Returns the maximum sane temperature across all zones — no admin required on most hardware.
+    fn query_acpi_cpu_temp(col: &GpuCollector) -> Option<f32> {
+        let conn = col.thermal_conn.as_ref()?;
+        let rows: Vec<HashMap<String, Variant>> = conn
+            .raw_query("SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature")
+            .ok()?;
 
-        GpuSnapshot {
-            name: col.cached_name.clone(),
-            utilization_percent: utilization,
-            vram_used_bytes: 0, // WMI doesn't expose runtime VRAM usage easily
-            vram_total_bytes: col.cached_vram,
-            temperature_celsius: None, // populated by sysinfo components fallback
-            available: !col.cached_name.is_empty(),
-        }
+        rows.iter()
+            .filter_map(|r| {
+                // CurrentTemperature is in tenths of Kelvin (uint32)
+                let raw = match r.get("CurrentTemperature") {
+                    Some(Variant::UI4(v)) => *v as f64,
+                    Some(Variant::I4(v))  => *v as f64,
+                    Some(Variant::UI8(v)) => *v as f64,
+                    _ => return None,
+                };
+                let celsius = raw / 10.0 - 273.15;
+                // Sanity-check: throw away values outside a physically plausible range
+                if celsius > 0.0 && celsius < 150.0 { Some(celsius as f32) } else { None }
+            })
+            .reduce(f32::max)
     }
 
     fn query_utilization(col: &GpuCollector) -> Option<f32> {

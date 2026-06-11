@@ -183,3 +183,16 @@ pub fn fmt_bps(bps: u64) -> String {
         format!("{bps} B/s")
     }
 }
+
+/// Splits a bytes-per-second value into (numeric string, unit) for the right-panel display.
+pub fn fmt_bps_parts(bps: u64) -> (String, &'static str) {
+    const MBPS: u64 = 1_000_000;
+    const KBPS: u64 = 1_000;
+    if bps >= MBPS {
+        (format!("{:.1}", bps as f64 / MBPS as f64), "MB/s")
+    } else if bps >= KBPS {
+        (format!("{:.0}", bps as f64 / KBPS as f64), "KB/s")
+    } else {
+        (format!("{bps}"), "B/s")
+    }
+}

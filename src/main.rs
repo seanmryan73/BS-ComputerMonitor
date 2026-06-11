@@ -14,7 +14,7 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_title("BS Computer Monitor")
             .with_inner_size([350.0, 650.0])
-            .with_min_inner_size([300.0, 400.0])
+            .with_min_inner_size([200.0, 400.0])
             .with_decorations(false)
             .with_transparent(false),
         ..Default::default()
