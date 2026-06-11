@@ -10,6 +10,7 @@ use egui::{
     TopBottomPanel, ViewportCommand,
 };
 
+use std::sync::Arc;
 use crate::{app::MonitorApp, models::{FpsSnapshot, SystemSnapshot}};
 
 pub fn draw(
@@ -28,17 +29,19 @@ pub fn draw(
         .exact_height(36.0)
         .frame(Frame::none().fill(tb_bg))
         .show(ctx, |ui| {
-            titlebar::show(ui, ctx, &app.theme, always_on_top, show_about);
+            titlebar::show(ui, ctx, &app.theme, always_on_top, show_about, Arc::clone(&app.card_vis));
         });
 
+    let vis = app.card_vis.lock().map(|g| g.clone()).unwrap_or_default();
     CentralPanel::default()
         .frame(Frame::none().fill(bg).inner_margin(egui::Margin::same(12.0)))
         .show(ctx, |ui| {
-            cards::show_grid(app, ui, snap, fps);
+            cards::show_grid(app, ui, snap, fps, &vis);
         });
 
-    // About overlay — drawn above everything else
-    about::show(ctx, &app.theme, &mut app.show_about);
+    // About / Help / Config — separate OS window
+    let card_vis = Arc::clone(&app.card_vis);
+    about::show(ctx, &app.theme, &mut app.show_about, card_vis);
 
     // Resize handles — invisible edge/corner hit-zones around the window.
     // The title bar (top 36 px) is excluded; N/NE/NW are skipped to avoid

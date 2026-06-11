@@ -1,8 +1,9 @@
 //! Root application struct — owns shared state and drives the UI each frame.
 
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use egui::Context;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     collector, fps_collector,
@@ -10,6 +11,67 @@ use crate::{
     theme::Theme,
     ui,
 };
+
+fn config_path() -> std::path::PathBuf {
+    let base = std::env::var("APPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+    base.join("BSComputerMonitor").join("config.json")
+}
+
+/// Persisted user config — card visibility + window opacity + display mode.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CardVisibility {
+    pub show_fps:  bool,
+    pub show_gpu:  bool,
+    pub show_net:  bool,
+    pub show_disk: bool,
+    pub show_temp: bool,
+    #[serde(default = "default_opacity")]
+    pub opacity: f32,
+    #[serde(default)]
+    pub compact_mode: bool,
+    #[serde(default = "default_compact_font_size")]
+    pub compact_font_size: f32,
+    #[serde(default)]
+    pub passthrough_mode: bool,
+}
+
+fn default_opacity() -> f32 { 1.0 }
+fn default_compact_font_size() -> f32 { 22.0 }
+
+impl Default for CardVisibility {
+    fn default() -> Self {
+        Self {
+            show_fps: true, show_gpu: true, show_net: true,
+            show_disk: true, show_temp: true,
+            opacity: 1.0,
+            compact_mode: false,
+            compact_font_size: 22.0,
+            passthrough_mode: false,
+        }
+    }
+}
+
+impl CardVisibility {
+    pub fn load() -> Self {
+        let path = config_path();
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save(&self) {
+        let path = config_path();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(json) = serde_json::to_string_pretty(self) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+}
 
 pub struct MonitorApp {
     snapshot: Arc<RwLock<SystemSnapshot>>,
@@ -55,6 +117,13 @@ pub struct MonitorApp {
     first_tick: bool,
     pub always_on_top: bool,
     pub show_about: bool,
+    pub card_vis: Arc<Mutex<CardVisibility>>,
+    hwnd: Option<isize>,
+    applied_opacity: f32,
+    opacity_startup_frames: u8,
+    prev_always_on_top: bool,
+    prev_compact_mode: Option<bool>,
+    pub passthrough_active: bool,
 }
 
 impl MonitorApp {
@@ -107,6 +176,13 @@ impl MonitorApp {
             first_tick: true,
             always_on_top: false,
             show_about: false,
+            card_vis: Arc::new(Mutex::new(CardVisibility::load())),
+            hwnd: None,
+            applied_opacity: -1.0, // force first-frame application
+            opacity_startup_frames: 0,
+            prev_always_on_top: false,
+            prev_compact_mode: None,
+            passthrough_active: false,
         }
     }
 
@@ -202,10 +278,95 @@ fn interp_buf(disp: &mut Vec<f64>, prev: &[f64], curr: &[f64], t: f64) {
     }
 }
 
+#[cfg(windows)]
+fn ctrl_held() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+    const VK_CONTROL: i32 = 0x11;
+    unsafe { (GetAsyncKeyState(VK_CONTROL) as u16) & 0x8000 != 0 }
+}
+
+#[cfg(not(windows))]
+fn ctrl_held() -> bool { false }
+
+#[cfg(windows)]
+fn get_main_hwnd() -> Option<isize> {
+    use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
+    use windows::core::PCWSTR;
+    let title: Vec<u16> = "BS Computer Monitor\0".encode_utf16().collect();
+    let hwnd = unsafe { FindWindowW(PCWSTR::null(), PCWSTR(title.as_ptr())) };
+    if hwnd.0 != 0 { Some(hwnd.0) } else { None }
+}
+
+#[cfg(not(windows))]
+fn get_main_hwnd() -> Option<isize> { None }
+
+#[cfg(windows)]
+fn apply_window_opacity(hwnd: isize, opacity: f32) {
+    use windows::Win32::Foundation::{COLORREF, HWND};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, SetLayeredWindowAttributes,
+        GWL_EXSTYLE, LWA_ALPHA, WS_EX_LAYERED,
+    };
+    let hwnd = HWND(hwnd);
+    let alpha = (opacity.clamp(0.15, 1.0) * 255.0).round() as u8;
+    unsafe {
+        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as isize);
+        let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA);
+    }
+}
+
+#[cfg(not(windows))]
+fn apply_window_opacity(_hwnd: isize, _opacity: f32) {}
+
 impl eframe::App for MonitorApp {
     fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
         // 60 fps for smooth animation
         ctx.request_repaint();
+
+        // Find the main window HWND once (FindWindowW is reliable on Windows)
+        if self.hwnd.is_none() {
+            self.hwnd = get_main_hwnd();
+        }
+
+        // WindowLevel changes (pin/unpin) cause winit to call SetWindowPos which
+        // can strip WS_EX_LAYERED — detect the toggle and force a re-apply.
+        if self.always_on_top != self.prev_always_on_top {
+            self.prev_always_on_top = self.always_on_top;
+            self.applied_opacity = -1.0;
+            self.opacity_startup_frames = 0;
+        }
+
+        let target_opacity = self.card_vis.lock().map(|v| v.opacity).unwrap_or(1.0);
+        if let Some(hwnd) = self.hwnd {
+            // Re-apply for the first 10 frames (handles window-show timing on startup)
+            // and whenever the value actually changes.
+            let startup = self.opacity_startup_frames < 10;
+            let changed = (target_opacity - self.applied_opacity).abs() > 0.001;
+            if startup || changed {
+                apply_window_opacity(hwnd, target_opacity);
+                self.applied_opacity = target_opacity;
+            }
+            if self.opacity_startup_frames < 10 {
+                self.opacity_startup_frames += 1;
+            }
+        }
+
+        // Adjust minimum window width when compact mode changes (or on first frame)
+        let compact_mode = self.card_vis.lock().map(|v| v.compact_mode).unwrap_or(false);
+        if self.prev_compact_mode != Some(compact_mode) {
+            self.prev_compact_mode = Some(compact_mode);
+            let min_w = if compact_mode { 110.0f32 } else { 200.0f32 };
+            ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(min_w, 200.0)));
+        }
+
+        // Passthrough (game overlay): armed via config, Ctrl held → temporarily interactive
+        let passthrough_armed = self.card_vis.lock().map(|v| v.passthrough_mode).unwrap_or(false);
+        let want_passthrough = passthrough_armed && !ctrl_held();
+        if want_passthrough != self.passthrough_active {
+            self.passthrough_active = want_passthrough;
+            ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(want_passthrough));
+        }
 
         let snap = self.snapshot.read().map(|g| g.clone()).unwrap_or_default();
         let fps_snap = self.fps.read().map(|g| g.clone()).unwrap_or_default();

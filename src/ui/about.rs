@@ -1,117 +1,291 @@
-//! Minimal HUD-style about panel.
+//! About / Help / Config — separate OS window via egui multi-viewport.
 
-use egui::{Align2, Color32, RichText, Vec2};
+use std::sync::{Arc, Mutex};
 
-use crate::theme::Theme;
+use egui::{Color32, Frame, Margin, RichText, Stroke, Vec2, ViewportBuilder, ViewportId};
 
-pub fn show(ctx: &egui::Context, theme: &Theme, open: &mut bool) {
+use crate::{app::CardVisibility, theme::Theme};
+
+const CLOSE_ID: &str = "about_window_close_requested";
+
+pub fn show(
+    ctx: &egui::Context,
+    theme: &Theme,
+    open: &mut bool,
+    card_vis: Arc<Mutex<CardVisibility>>,
+) {
+    let close_id = egui::Id::new(CLOSE_ID);
+    if ctx.data(|d| d.get_temp::<bool>(close_id).unwrap_or(false)) {
+        *open = false;
+        ctx.data_mut(|d| d.remove::<bool>(close_id));
+    }
+
     if !*open {
         return;
     }
 
-    egui::Window::new("##bs_about")
-        .title_bar(false)
-        .resizable(false)
-        .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
-        .fixed_size(Vec2::new(360.0, 218.0))
-        .frame(
-            egui::Frame::none()
-                .fill(Color32::from_rgb(0x05, 0x04, 0x10))
-                .stroke(egui::Stroke::new(
-                    1.0,
-                    Color32::from_rgba_unmultiplied(
-                        theme.accent_cpu.r(),
-                        theme.accent_cpu.g(),
-                        theme.accent_cpu.b(),
-                        70,
-                    ),
-                ))
-                .rounding(egui::Rounding::same(8.0))
-                .inner_margin(egui::Margin::same(24.0)),
-        )
-        .show(ctx, |ui| {
-            // Title
-            ui.label(
-                RichText::new("BS COMPUTER MONITOR")
-                    .color(theme.accent_cpu)
-                    .monospace()
-                    .size(17.0)
-                    .strong(),
-            );
-            ui.label(
-                RichText::new("v0.1.0  ·  System Resource Monitor")
-                    .color(theme.text_subtle)
-                    .monospace()
-                    .size(10.0),
-            );
+    let theme = *theme;
 
-            ui.add_space(10.0);
-            divider(ui, theme.accent_cpu, 0.35);
-            ui.add_space(8.0);
+    ctx.show_viewport_deferred(
+        ViewportId::from_hash_of("about_viewport"),
+        ViewportBuilder::default()
+            .with_title("Help / About / Config")
+            .with_inner_size([420.0, 420.0])
+            .with_resizable(false)
+            .with_maximize_button(false),
+        move |ctx, _class| {
+            if ctx.input(|i| i.viewport().close_requested()) {
+                ctx.data_mut(|d| d.insert_temp(egui::Id::new(CLOSE_ID), true));
+            }
 
-            row(ui, theme, "AUTHOR",   "seanmryan@gmail.com");
-            row(ui, theme, "COMPANY",  "BagPipes — BS Solutions");
+            let mut vis = egui::Visuals::dark();
+            vis.override_text_color = Some(theme.text_primary);
+            vis.panel_fill = Color32::from_rgb(0x05, 0x04, 0x10);
+            // Tint checkboxes with the CPU accent colour
+            vis.selection.bg_fill = theme.accent_cpu;
+            ctx.set_visuals(vis);
 
-            ui.add_space(8.0);
-            divider(ui, theme.accent_cpu, 0.18);
-            ui.add_space(8.0);
+            egui::CentralPanel::default()
+                .frame(Frame::none()
+                    .fill(Color32::from_rgb(0x05, 0x04, 0x10))
+                    .inner_margin(Margin::same(24.0)))
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                    // ── Header ────────────────────────────────────────────
+                    ui.label(
+                        RichText::new("BS COMPUTER MONITOR")
+                            .color(theme.accent_cpu)
+                            .monospace()
+                            .size(17.0)
+                            .strong(),
+                    );
+                    ui.label(
+                        RichText::new("v0.1.0  ·  System Resource Monitor")
+                            .color(theme.text_subtle)
+                            .monospace()
+                            .size(10.0),
+                    );
 
-            row(ui, theme, "RUNTIME",  "Rust  ·  egui 0.29  ·  eframe 0.29");
-            row(ui, theme, "PLATFORM", "Windows  ·  x86_64");
+                    ui.add_space(10.0);
+                    divider(ui, theme.accent_cpu, 0.35);
+                    ui.add_space(8.0);
 
-            ui.add_space(14.0);
+                    row(ui, theme, "AUTHOR",   "seanmryan@gmail.com");
+                    row(ui, theme, "COMPANY",  "BagPipes — BS Solutions");
 
-            ui.vertical_centered(|ui| {
-                let btn = egui::Button::new(
-                    RichText::new("CLOSE")
-                        .color(theme.text_primary)
-                        .monospace()
-                        .size(11.0),
-                )
-                .fill(Color32::from_rgba_unmultiplied(30, 30, 50, 220))
-                .stroke(egui::Stroke::new(1.0, theme.card_border))
-                .min_size(Vec2::new(100.0, 26.0));
+                    ui.add_space(8.0);
+                    divider(ui, theme.accent_cpu, 0.18);
+                    ui.add_space(8.0);
 
-                if ui.add(btn).clicked() {
-                    *open = false;
-                }
-            });
-        });
+                    row(ui, theme, "RUNTIME",  "Rust  ·  egui 0.29  ·  eframe 0.29");
+                    row(ui, theme, "PLATFORM", "Windows  ·  x86_64");
+
+                    // ── Display mode ──────────────────────────────────────
+                    ui.add_space(10.0);
+                    divider(ui, theme.accent_cpu, 0.35);
+                    ui.add_space(6.0);
+
+                    ui.label(
+                        RichText::new("DISPLAY MODE")
+                            .color(theme.accent_cpu)
+                            .monospace()
+                            .size(10.5)
+                            .strong(),
+                    );
+                    ui.add_space(4.0);
+
+                    if let Ok(mut vis) = card_vis.lock() {
+                        let c1 = toggle(ui, theme, &mut vis.compact_mode, "COMPACT  —  numbers only, narrower window");
+                        let is_compact = vis.compact_mode;
+
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            let label_color = if is_compact { theme.text_subtle } else { theme.text_dim };
+                            ui.label(RichText::new("VALUE SIZE").color(label_color).monospace().size(10.0));
+                            let slider = egui::Slider::new(&mut vis.compact_font_size, 11.0_f32..=60.0_f32)
+                                .custom_formatter(|v, _| format!("{:.0} pt", v))
+                                .custom_parser(|s| s.trim_end_matches("pt").trim().parse().ok());
+                            let c2 = ui.add_enabled(is_compact, slider).changed();
+                            if c1 || c2 { vis.save(); }
+                        });
+                    }
+
+                    // ── Card visibility ───────────────────────────────────
+                    ui.add_space(10.0);
+                    divider(ui, theme.accent_cpu, 0.35);
+                    ui.add_space(6.0);
+
+                    ui.label(
+                        RichText::new("VISIBLE CARDS")
+                            .color(theme.accent_cpu)
+                            .monospace()
+                            .size(10.5)
+                            .strong(),
+                    );
+                    ui.add_space(4.0);
+
+                    // CPU and MEM are always on — shown disabled
+                    let mut always = true;
+                    ui.add_enabled(false, egui::Checkbox::new(&mut always,
+                        RichText::new("CPU  —  always visible").color(theme.text_dim).monospace().size(10.5)));
+                    ui.add_enabled(false, egui::Checkbox::new(&mut always,
+                        RichText::new("MEM  —  always visible").color(theme.text_dim).monospace().size(10.5)));
+
+                    ui.add_space(2.0);
+
+                    // Toggleable cards
+                    if let Ok(mut vis) = card_vis.lock() {
+                        let c1 = toggle(ui, theme, &mut vis.show_fps,  "FPS");
+                        let c2 = toggle(ui, theme, &mut vis.show_gpu,  "GPU");
+                        let c3 = toggle(ui, theme, &mut vis.show_net,  "NET");
+                        let c4 = toggle(ui, theme, &mut vis.show_disk, "DISK");
+                        let c5 = toggle(ui, theme, &mut vis.show_temp, "TEMP");
+                        if c1 || c2 || c3 || c4 || c5 {
+                            vis.save();
+                        }
+                    }
+
+                    // ── Window opacity ────────────────────────────────────
+                    ui.add_space(10.0);
+                    divider(ui, theme.accent_cpu, 0.35);
+                    ui.add_space(6.0);
+
+                    ui.label(
+                        RichText::new("WINDOW OPACITY")
+                            .color(theme.accent_cpu)
+                            .monospace()
+                            .size(10.5)
+                            .strong(),
+                    );
+                    ui.add_space(4.0);
+
+                    if let Ok(mut vis) = card_vis.lock() {
+                        let resp = ui.add(
+                            egui::Slider::new(&mut vis.opacity, 0.15_f32..=1.0_f32)
+                                .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
+                                .custom_parser(|s| s.trim_end_matches('%').parse().ok().map(|v: f64| v / 100.0))
+                        );
+                        if resp.changed() {
+                            vis.save();
+                        }
+                    }
+
+                    // ── Passthrough / Overlay mode ────────────────────────
+                    ui.add_space(10.0);
+                    divider(ui, theme.accent_cpu, 0.35);
+                    ui.add_space(6.0);
+
+                    ui.label(
+                        RichText::new("PASSTHROUGH / OVERLAY MODE")
+                            .color(theme.accent_cpu)
+                            .monospace()
+                            .size(10.5)
+                            .strong(),
+                    );
+                    ui.add_space(4.0);
+
+                    if let Ok(mut vis) = card_vis.lock() {
+                        let c = toggle(ui, theme, &mut vis.passthrough_mode,
+                            "PASSTHROUGH  —  clicks pass through to app behind");
+                        if c { vis.save(); }
+                    }
+
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new("When enabled, all mouse clicks pass through the overlay to whatever app is behind it.  The monitor becomes a true HUD.")
+                            .color(theme.text_dim)
+                            .monospace()
+                            .size(9.5)
+                            .italics(),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new("HOW TO INTERACT WHILE PASSTHROUGH IS ON:")
+                            .color(theme.text_subtle)
+                            .monospace()
+                            .size(9.5)
+                            .strong(),
+                    );
+                    ui.label(
+                        RichText::new("Hold CTRL — while you hold the Ctrl key, clicks are captured by this app instead of passing through.  Release Ctrl to return to overlay mode.")
+                            .color(theme.text_dim)
+                            .monospace()
+                            .size(9.5),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new("TIP: If passthrough was enabled when you last closed the app it will be active on the next launch too.  Hold Ctrl and click the crosshair button in the title bar to disable it, or open this window with Ctrl+click on the '?' button.")
+                            .color(theme.text_subtle)
+                            .monospace()
+                            .size(9.0)
+                            .italics(),
+                    );
+
+                    ui.add_space(8.0);
+                    ui.vertical_centered(|ui| {
+                        let reset_btn = egui::Button::new(
+                            RichText::new("RESET TO DEFAULTS")
+                                .color(theme.crit)
+                                .monospace()
+                                .size(10.5),
+                        )
+                        .fill(Color32::from_rgba_unmultiplied(30, 10, 10, 220))
+                        .stroke(Stroke::new(1.0, theme.crit))
+                        .min_size(Vec2::new(160.0, 24.0));
+
+                        if ui.add(reset_btn).on_hover_text("Show all cards · opacity 100%").clicked() {
+                            if let Ok(mut vis) = card_vis.lock() {
+                                *vis = crate::app::CardVisibility::default();
+                                vis.save();
+                            }
+                        }
+                    });
+
+                    // ── Close button ──────────────────────────────────────
+                    ui.add_space(12.0);
+                    ui.vertical_centered(|ui| {
+                        let btn = egui::Button::new(
+                            RichText::new("CLOSE")
+                                .color(theme.text_primary)
+                                .monospace()
+                                .size(11.0),
+                        )
+                        .fill(Color32::from_rgba_unmultiplied(30, 30, 50, 220))
+                        .stroke(Stroke::new(1.0, theme.card_border))
+                        .min_size(Vec2::new(100.0, 26.0));
+
+                        if ui.add(btn).clicked() {
+                            ctx.data_mut(|d| d.insert_temp(egui::Id::new(CLOSE_ID), true));
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                    });
+                    }); // end ScrollArea
+                });
+        },
+    );
 }
 
-fn row(ui: &mut egui::Ui, theme: &Theme, label: &str, value: &str) {
+fn toggle(ui: &mut egui::Ui, theme: Theme, value: &mut bool, label: &str) -> bool {
+    let color = if *value { theme.text_primary } else { theme.text_dim };
+    ui.checkbox(value, RichText::new(label).color(color).monospace().size(10.5))
+        .changed()
+}
+
+fn row(ui: &mut egui::Ui, theme: Theme, label: &str, value: &str) {
     ui.horizontal(|ui| {
-        ui.label(
-            RichText::new(format!("{:<10}", label))
-                .color(theme.text_subtle)
-                .monospace()
-                .size(10.5),
-        );
-        ui.label(
-            RichText::new("·")
-                .color(theme.text_dim)
-                .monospace()
-                .size(10.5),
-        );
+        ui.label(RichText::new(format!("{:<10}", label)).color(theme.text_subtle).monospace().size(10.5));
+        ui.label(RichText::new("·").color(theme.text_dim).monospace().size(10.5));
         ui.add_space(4.0);
-        ui.label(
-            RichText::new(value)
-                .color(theme.text_primary)
-                .monospace()
-                .size(10.5),
-        );
+        ui.label(RichText::new(value).color(theme.text_primary).monospace().size(10.5));
     });
 }
 
 fn divider(ui: &mut egui::Ui, color: Color32, alpha_frac: f32) {
     let alpha = (255.0 * alpha_frac) as u8;
     let [r, g, b, _] = color.to_array();
-    let (rect, _) = ui.allocate_exact_size(
-        Vec2::new(ui.available_width(), 1.0),
-        egui::Sense::hover(),
-    );
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), egui::Sense::hover());
     ui.painter().line_segment(
         [rect.left_center(), rect.right_center()],
-        egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(r, g, b, alpha)),
+        Stroke::new(1.0, Color32::from_rgba_unmultiplied(r, g, b, alpha)),
     );
 }

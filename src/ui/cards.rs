@@ -3,7 +3,7 @@
 use egui::{Align, Align2, Color32, FontFamily, FontId, Layout, Rounding, Sense, Vec2};
 
 use crate::{
-    app::MonitorApp,
+    app::{CardVisibility, MonitorApp},
     models::{fmt_bytes, fmt_bps, fmt_bps_parts, FpsSnapshot, SystemSnapshot},
 };
 
@@ -20,15 +20,27 @@ const NARROW: f32 = 115.0;
 
 // ── Grid entry point ──────────────────────────────────────────────────────────
 
-pub fn show_grid(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot, fps: &FpsSnapshot) {
-    ui.spacing_mut().item_spacing.y = 4.0;
-    cpu_card(app, ui, snap);
-    memory_card(app, ui, snap);
-    fps_card(app, ui, fps);
-    gpu_card(app, ui, snap);
-    network_card(app, ui, snap);
-    disk_card(app, ui, snap);
-    temps_card(app, ui, snap);
+pub fn show_grid(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot, fps: &FpsSnapshot, vis: &CardVisibility) {
+    if vis.compact_mode {
+        let fs = vis.compact_font_size;
+        ui.spacing_mut().item_spacing.y = 2.0;
+        compact_row(ui, &app.theme, "CPU",  app.theme.accent_cpu,  &compact_cpu_val(app, snap),  compact_cpu_color(app, snap),  fs);
+        compact_row(ui, &app.theme, "MEM",  app.theme.accent_mem,  &compact_mem_val(app, snap),  compact_mem_color(app, snap),  fs);
+        if vis.show_fps  { compact_row(ui, &app.theme, "FPS",  app.theme.accent_net,  &compact_fps_val(fps),        compact_fps_color(app, fps),  fs); }
+        if vis.show_gpu  { compact_row(ui, &app.theme, "GPU",  app.theme.accent_gpu,  &compact_gpu_val(app, snap),  compact_gpu_color(app, snap), fs); }
+        if vis.show_net  { compact_row(ui, &app.theme, "NET",  app.theme.accent_net,  &compact_net_val(snap),       app.theme.accent_net,         fs); }
+        if vis.show_disk { compact_row(ui, &app.theme, "DISK", app.theme.accent_disk, &compact_disk_val(app, snap), compact_disk_color(app, snap),fs); }
+        if vis.show_temp { compact_row(ui, &app.theme, "TEMP", app.theme.accent_temp, &compact_temp_val(snap),      compact_temp_color(app, snap),fs); }
+    } else {
+        ui.spacing_mut().item_spacing.y = 4.0;
+        cpu_card(app, ui, snap);
+        memory_card(app, ui, snap);
+        if vis.show_fps  { fps_card(app, ui, fps); }
+        if vis.show_gpu  { gpu_card(app, ui, snap); }
+        if vis.show_net  { network_card(app, ui, snap); }
+        if vis.show_disk { disk_card(app, ui, snap); }
+        if vis.show_temp { temps_card(app, ui, snap); }
+    }
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
@@ -138,6 +150,107 @@ fn zone_sep(ui: &mut Ui, accent: Color32) {
         ],
         egui::Stroke::new(0.5, Color32::from_rgba_unmultiplied(r, g, b, 28)),
     );
+}
+
+// ── Compact mode ─────────────────────────────────────────────────────────────
+
+fn compact_row(ui: &mut Ui, theme: &crate::theme::Theme, label: &str, accent: Color32, val: &str, val_color: Color32, font_size: f32) {
+    glow_card(ui, theme, accent, |ui| {
+        let row_h = (font_size + 12.0).max(24.0);
+        let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), row_h), Sense::hover());
+        let p  = ui.painter();
+        let cy = rect.center().y;
+
+        // Accent bar
+        let bar_h = (font_size * 0.65).clamp(12.0, 26.0);
+        p.rect_filled(
+            egui::Rect::from_center_size(egui::pos2(rect.min.x + 1.5, cy), Vec2::new(3.0, bar_h)),
+            Rounding::same(1.5),
+            accent,
+        );
+
+        // Label (tag on the left)
+        p.text(
+            egui::pos2(rect.min.x + 11.0, cy),
+            Align2::LEFT_CENTER,
+            label,
+            FontId::new(10.5, FontFamily::Monospace),
+            accent,
+        );
+
+        // Value — right-aligned with thick stroke + glow
+        let vp  = egui::pos2(rect.max.x - 4.0, cy);
+        let fid = FontId::new(font_size, FontFamily::Monospace);
+        let [r, g, b, _] = val_color.to_array();
+
+        // Soft glow bloom — 4 cardinals at 1 px, just enough for the neon look
+        let halo = Color32::from_rgba_unmultiplied(r, g, b, 18);
+        for (dx, dy) in [(-1.0f32, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)] {
+            p.text(egui::pos2(vp.x+dx, vp.y+dy), Align2::RIGHT_CENTER, val, fid.clone(), halo);
+        }
+
+        // Solid core
+        p.text(vp, Align2::RIGHT_CENTER, val, fid, val_color);
+    });
+}
+
+fn compact_cpu_val(_app: &MonitorApp, snap: &SystemSnapshot) -> String {
+    format!("{:.1}%", snap.cpu.total_usage)
+}
+fn compact_cpu_color(app: &MonitorApp, snap: &SystemSnapshot) -> Color32 {
+    app.theme.health_color(snap.cpu.total_usage, 60.0, 85.0)
+}
+
+fn compact_mem_val(_: &MonitorApp, snap: &SystemSnapshot) -> String {
+    format!("{:.1}%", snap.memory.usage_percent())
+}
+fn compact_mem_color(app: &MonitorApp, snap: &SystemSnapshot) -> Color32 {
+    app.theme.health_color(snap.memory.usage_percent(), 70.0, 90.0)
+}
+
+fn compact_fps_val(fps: &FpsSnapshot) -> String {
+    if fps.active { format!("{:.0} fps", fps.fps) } else { "— fps".into() }
+}
+fn compact_fps_color(app: &MonitorApp, fps: &FpsSnapshot) -> Color32 {
+    if !fps.active         { app.theme.text_dim }
+    else if fps.fps >= 60.0 { app.theme.ok }
+    else if fps.fps >= 30.0 { app.theme.warn }
+    else                    { app.theme.crit }
+}
+
+fn compact_gpu_val(_: &MonitorApp, snap: &SystemSnapshot) -> String {
+    if snap.gpu.available {
+        snap.gpu.utilization_percent.map(|p| format!("{p:.0}%")).unwrap_or_else(|| "—".into())
+    } else { "—".into() }
+}
+fn compact_gpu_color(app: &MonitorApp, snap: &SystemSnapshot) -> Color32 {
+    match snap.gpu.utilization_percent.filter(|_| snap.gpu.available) {
+        Some(p) => app.theme.health_color(p, 70.0, 90.0),
+        None    => app.theme.text_dim,
+    }
+}
+
+fn compact_net_val(snap: &SystemSnapshot) -> String {
+    let (num, unit) = fmt_bps_parts(snap.network.total_rx_bps);
+    format!("↓{num} {unit}")
+}
+
+fn compact_disk_val(_: &MonitorApp, snap: &SystemSnapshot) -> String {
+    snap.disks.first().map(|d| format!("{:.0}%", d.usage_percent())).unwrap_or_else(|| "—".into())
+}
+fn compact_disk_color(app: &MonitorApp, snap: &SystemSnapshot) -> Color32 {
+    snap.disks.first()
+        .map(|d| app.theme.health_color(d.usage_percent(), 75.0, 90.0))
+        .unwrap_or(app.theme.text_dim)
+}
+
+fn compact_temp_val(snap: &SystemSnapshot) -> String {
+    snap.temps.cpu_celsius.map(|t| format!("{t:.0}°C")).unwrap_or_else(|| "—".into())
+}
+fn compact_temp_color(app: &MonitorApp, snap: &SystemSnapshot) -> Color32 {
+    snap.temps.cpu_celsius
+        .map(|t| app.theme.health_color(t, 70.0, 85.0))
+        .unwrap_or(app.theme.text_dim)
 }
 
 // ── CPU ───────────────────────────────────────────────────────────────────────

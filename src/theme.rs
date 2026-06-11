@@ -2,6 +2,7 @@
 
 use egui::{Color32, Margin, Rounding, Stroke, Visuals};
 
+#[derive(Clone, Copy)]
 pub struct Theme {
     // Surfaces
     pub bg: Color32,
