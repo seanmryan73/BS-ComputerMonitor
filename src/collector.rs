@@ -252,11 +252,12 @@ mod gpu_win {
     pub fn collect(col: &mut GpuCollector) -> (GpuSnapshot, Option<f32>) {
         let gpu = if col.conn.is_some() {
             let utilization = query_utilization(col);
+            let (vram_used, vram_total) = query_vram_dxgi().unwrap_or((0, col.cached_vram));
             GpuSnapshot {
                 name: col.cached_name.clone(),
                 utilization_percent: utilization,
-                vram_used_bytes: 0,
-                vram_total_bytes: col.cached_vram,
+                vram_used_bytes: vram_used,
+                vram_total_bytes: vram_total,
                 temperature_celsius: None,
                 available: !col.cached_name.is_empty(),
             }
@@ -265,6 +266,55 @@ mod gpu_win {
         };
         let cpu_temp = query_acpi_cpu_temp(col);
         (gpu, cpu_temp)
+    }
+
+    /// Returns (vram_used_bytes, vram_total_bytes) for the discrete GPU with the most VRAM.
+    /// Uses DXGI 1.4 so totals are 64-bit (avoids the 4 GB cap in Win32_VideoController.AdapterRAM).
+    fn query_vram_dxgi() -> Option<(u64, u64)> {
+        use windows::core::Interface as _;
+        use windows::Win32::Graphics::Dxgi::{
+            CreateDXGIFactory1, IDXGIAdapter3, IDXGIFactory1,
+            DXGI_ADAPTER_DESC1, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, DXGI_QUERY_VIDEO_MEMORY_INFO,
+        };
+        const DXGI_ADAPTER_FLAG_SOFTWARE: u32 = 2;
+        unsafe {
+            let factory: IDXGIFactory1 = CreateDXGIFactory1().ok()?;
+            let mut best_total: usize = 0;
+            let mut best_used: u64 = 0;
+            let mut i = 0u32;
+            loop {
+                let adapter = match factory.EnumAdapters1(i) {
+                    Ok(a) => a,
+                    Err(_) => break,
+                };
+                i += 1;
+                let mut desc = DXGI_ADAPTER_DESC1::default();
+                if adapter.GetDesc1(&mut desc).is_err() {
+                    continue;
+                }
+                if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0 {
+                    continue;
+                }
+                if desc.DedicatedVideoMemory > best_total {
+                    best_total = desc.DedicatedVideoMemory;
+                    best_used = 0;
+                    if let Ok(adapter3) = adapter.cast::<IDXGIAdapter3>() {
+                        let mut info = DXGI_QUERY_VIDEO_MEMORY_INFO::default();
+                        if adapter3
+                            .QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &mut info)
+                            .is_ok()
+                        {
+                            best_used = info.CurrentUsage;
+                        }
+                    }
+                }
+            }
+            if best_total > 0 {
+                Some((best_used, best_total as u64))
+            } else {
+                None
+            }
+        }
     }
 
     /// Queries MSAcpi_ThermalZoneTemperature in root\WMI.
@@ -289,6 +339,16 @@ mod gpu_win {
                 if celsius > 0.0 && celsius < 150.0 { Some(celsius as f32) } else { None }
             })
             .reduce(f32::max)
+    }
+
+    fn variant_as_u64(v: Option<&Variant>) -> Option<u64> {
+        match v {
+            Some(Variant::UI4(n)) => Some(*n as u64),
+            Some(Variant::UI8(n)) => Some(*n),
+            Some(Variant::I4(n))  => Some((*n).max(0) as u64),
+            Some(Variant::I8(n))  => Some((*n).max(0) as u64),
+            _ => None,
+        }
     }
 
     fn query_utilization(col: &GpuCollector) -> Option<f32> {
@@ -316,8 +376,8 @@ mod gpu_win {
             if !name_ok {
                 continue;
             }
-            if let Some(Variant::UI4(u)) = row.get("UtilizationPercentage") {
-                total += *u as u64;
+            if let Some(v) = variant_as_u64(row.get("UtilizationPercentage")) {
+                total += v;
                 count += 1;
             }
         }
@@ -325,8 +385,8 @@ mod gpu_win {
         if count == 0 {
             // Fallback: average all engines
             for row in &rows {
-                if let Some(Variant::UI4(u)) = row.get("UtilizationPercentage") {
-                    total += *u as u64;
+                if let Some(v) = variant_as_u64(row.get("UtilizationPercentage")) {
+                    total += v;
                     count += 1;
                 }
             }

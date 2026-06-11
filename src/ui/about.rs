@@ -14,6 +14,7 @@ pub fn show(
     open: &mut bool,
     card_vis: Arc<Mutex<CardVisibility>>,
     initial_pos: Option<egui::Pos2>,
+    is_elevated: bool,
 ) {
     let close_id = egui::Id::new(CLOSE_ID);
     if ctx.data(|d| d.get_temp::<bool>(close_id).unwrap_or(false)) {
@@ -41,6 +42,7 @@ pub fn show(
         ViewportId::from_hash_of("about_viewport"),
         builder,
         move |ctx, _class| {
+            let is_elevated = is_elevated;
             if ctx.input(|i| i.viewport().close_requested()) {
                 ctx.data_mut(|d| d.insert_temp(egui::Id::new(CLOSE_ID), true));
             }
@@ -79,6 +81,63 @@ pub fn show(
                         ui.add_space(4.0);
                         row(ui, theme, "RUNTIME",  "Rust  ·  egui 0.29  ·  eframe 0.29");
                         row(ui, theme, "PLATFORM", "Windows  ·  x86_64");
+
+                        // ── Permissions ───────────────────────────────────
+                        section(ui, theme, "PERMISSIONS");
+
+                        if is_elevated {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("●").color(theme.ok).monospace().size(11.0));
+                                ui.add_space(4.0);
+                                ui.label(
+                                    RichText::new("Running as Administrator — all sensors active")
+                                        .color(theme.text_subtle)
+                                        .monospace()
+                                        .size(10.0),
+                                );
+                            });
+                        } else {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("▲").color(theme.warn).monospace().size(11.0));
+                                ui.add_space(4.0);
+                                ui.label(
+                                    RichText::new("Not running as Administrator")
+                                        .color(theme.warn)
+                                        .monospace()
+                                        .size(10.5)
+                                        .strong(),
+                                );
+                            });
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new("Some sensors require admin rights:")
+                                    .color(theme.text_dim)
+                                    .monospace()
+                                    .size(10.0),
+                            );
+                            ui.add_space(2.0);
+                            ui.label(
+                                RichText::new("  GPU utilization %\n  CPU / GPU temperatures")
+                                    .color(theme.text_subtle)
+                                    .monospace()
+                                    .size(10.0),
+                            );
+                            ui.add_space(6.0);
+                            ui.label(
+                                RichText::new("TO RUN AS ADMINISTRATOR")
+                                    .color(theme.text_subtle)
+                                    .monospace()
+                                    .size(10.0)
+                                    .strong(),
+                            );
+                            ui.add_space(2.0);
+                            ui.label(
+                                RichText::new("Right-click the .exe → Run as administrator\n\nOr create a shortcut → Properties → Advanced\n→ check \"Run as administrator\"")
+                                    .color(theme.text_dim)
+                                    .monospace()
+                                    .size(10.0),
+                            );
+                        }
 
                         // ── Display mode ──────────────────────────────────
                         section(ui, theme, "DISPLAY MODE");

@@ -128,6 +128,7 @@ pub struct MonitorApp {
     prev_passthrough_mode: bool,
     pub passthrough_active: bool,
     pub prev_show_about: bool,
+    pub is_elevated: bool,
 }
 
 impl MonitorApp {
@@ -188,6 +189,7 @@ impl MonitorApp {
             prev_passthrough_mode: false,
             passthrough_active: false,
             prev_show_about: false,
+            is_elevated: check_elevated(),
         }
     }
 
@@ -323,6 +325,35 @@ fn apply_window_opacity(hwnd: isize, opacity: f32) {
 
 #[cfg(not(windows))]
 fn apply_window_opacity(_hwnd: isize, _opacity: f32) {}
+
+#[cfg(windows)]
+fn check_elevated() -> bool {
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::Security::{
+        GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+    };
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    unsafe {
+        let mut token = HANDLE::default();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
+            return false;
+        }
+        let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+        let mut returned = 0u32;
+        let ok = GetTokenInformation(
+            token,
+            TokenElevation,
+            Some(&mut elevation as *mut _ as *mut _),
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut returned,
+        ).is_ok();
+        let _ = CloseHandle(token);
+        ok && elevation.TokenIsElevated != 0
+    }
+}
+
+#[cfg(not(windows))]
+fn check_elevated() -> bool { true }
 
 impl eframe::App for MonitorApp {
     fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {

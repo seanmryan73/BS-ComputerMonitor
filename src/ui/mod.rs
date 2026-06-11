@@ -49,7 +49,7 @@ pub fn draw(
         });
 
     // Settings window — separate opaque OS window to the left
-    about::show(ctx, &app.theme, &mut app.show_about, Arc::clone(&app.card_vis), initial_pos);
+    about::show(ctx, &app.theme, &mut app.show_about, Arc::clone(&app.card_vis), initial_pos, app.is_elevated);
 
     // Resize handles — invisible edge/corner hit-zones around the window.
     // The title bar (top 36 px) is excluded; N/NE/NW are skipped to avoid
