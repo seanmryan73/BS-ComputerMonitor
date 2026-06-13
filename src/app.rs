@@ -167,6 +167,8 @@ pub struct MonitorApp {
     /// Tracks which optional cards were shown last frame so we can snap the
     /// window height whenever a card is added or removed.
     prev_shown_cards: [bool; 5],
+    /// Tracks the compact font size so a window resize fires when the slider moves.
+    prev_compact_font_size: f32,
 }
 
 impl MonitorApp {
@@ -183,6 +185,11 @@ impl MonitorApp {
         let vis_init = CardVisibility::load();
         let card_anim_init    = CardAnim::new(&vis_init);
         let compact_anim_init = if vis_init.compact_mode { 1.0_f32 } else { 0.0_f32 };
+        let prev_shown_init = [
+            vis_init.show_fps, vis_init.show_gpu, vis_init.show_net,
+            vis_init.show_disk, vis_init.show_temp,
+        ];
+        let prev_font_size_init = vis_init.compact_font_size;
 
         Self {
             snapshot,
@@ -237,10 +244,8 @@ impl MonitorApp {
             // Seed to match the actual startup layout so frame 1 doesn't trigger a spurious resize.
             prev_render_compact: Some(compact_anim_init > 0.5),
             saved_normal_height: None,
-            prev_shown_cards: [
-                vis_init.show_fps, vis_init.show_gpu, vis_init.show_net,
-                vis_init.show_disk, vis_init.show_temp,
-            ],
+            prev_shown_cards: prev_shown_init,
+            prev_compact_font_size: prev_font_size_init,
         }
     }
 
@@ -514,8 +519,12 @@ impl eframe::App for MonitorApp {
             }
         }
 
+        // Snapshot card visibility once — used by all three resize checks below and
+        // by advance_card_anims later in the frame.
+        let vis_snap = self.card_vis.lock().map(|v| v.clone()).unwrap_or_default();
+
         // Adjust minimum window width when compact mode changes (or on first frame)
-        let compact_mode = self.card_vis.lock().map(|v| v.compact_mode).unwrap_or(false);
+        let compact_mode = vis_snap.compact_mode;
         if self.prev_compact_mode != Some(compact_mode) {
             self.prev_compact_mode = Some(compact_mode);
             let min_w = if compact_mode { 110.0f32 } else { 200.0f32 };
@@ -542,19 +551,51 @@ impl eframe::App for MonitorApp {
                             .unwrap_or(650.0),
                     );
                 }
-                let vis = self.card_vis.lock().map(|v| v.clone()).unwrap_or_default();
-                let new_h = compact_window_height(&vis);
+                let new_h = compact_window_height(&vis_snap);
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(cur_w, new_h)));
             } else {
                 // Restore the saved normal height, or compute a sensible fit for the
                 // number of active cards if we never recorded a normal-mode height
                 // (e.g. app was launched directly in compact mode).
-                let h = self.saved_normal_height.unwrap_or_else(|| {
-                    let vis = self.card_vis.lock().map(|v| v.clone()).unwrap_or_default();
-                    normal_window_height(&vis)
-                });
+                let h = self.saved_normal_height
+                    .unwrap_or_else(|| normal_window_height(&vis_snap));
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(cur_w, h)));
             }
+        }
+
+        // Snap window height when individual cards are added or removed.
+        // In compact mode we compute a tight fit; in normal mode we compute a fitted height
+        // and also refresh saved_normal_height so the compact→normal restore stays correct.
+        let cur_shown = [
+            vis_snap.show_fps, vis_snap.show_gpu, vis_snap.show_net,
+            vis_snap.show_disk, vis_snap.show_temp,
+        ];
+        if cur_shown != self.prev_shown_cards {
+            self.prev_shown_cards = cur_shown;
+            let cur_w = ctx.input(|i| i.viewport().inner_rect)
+                .map(|r| r.width()).unwrap_or(350.0);
+            let normal_h = normal_window_height(&vis_snap);
+            // Always keep saved_normal_height in sync with the current card count so
+            // the compact→normal restore uses the right height even when cards were
+            // toggled while the user was in compact mode.
+            self.saved_normal_height = Some(normal_h);
+            if render_compact_now {
+                let new_h = compact_window_height(&vis_snap);
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(cur_w, new_h)));
+            } else {
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(cur_w, normal_h)));
+            }
+        }
+
+        // Snap compact window height when the font-size slider moves.
+        if render_compact_now
+            && (vis_snap.compact_font_size - self.prev_compact_font_size).abs() > 0.1
+        {
+            self.prev_compact_font_size = vis_snap.compact_font_size;
+            let cur_w = ctx.input(|i| i.viewport().inner_rect)
+                .map(|r| r.width()).unwrap_or(350.0);
+            let new_h = compact_window_height(&vis_snap);
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(cur_w, new_h)));
         }
 
         // Passthrough (game overlay): armed via config, Ctrl held → temporarily interactive
@@ -576,7 +617,6 @@ impl eframe::App for MonitorApp {
 
         let dt = ctx.input(|i| i.unstable_dt).min(0.05);
         self.advance_displays(dt);
-        let vis_snap = self.card_vis.lock().map(|v| v.clone()).unwrap_or_default();
         self.advance_card_anims(dt, &vis_snap);
 
         ui::draw(self, ctx, frame, &snap, &fps_snap);
