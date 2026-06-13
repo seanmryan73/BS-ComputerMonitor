@@ -159,6 +159,11 @@ pub struct MonitorApp {
     /// 0.0 = fully in normal mode, 1.0 = fully in compact mode.
     /// Drives the cross-dissolve when the user switches between modes.
     pub compact_anim: f32,
+    /// Tracks which layout was rendered last frame so we can fire the window
+    /// resize exactly when compact_anim crosses 0.5 (opacity == 0).
+    prev_render_compact: Option<bool>,
+    /// Window height saved just before entering compact mode, restored on exit.
+    saved_normal_height: Option<f32>,
 }
 
 impl MonitorApp {
@@ -226,6 +231,8 @@ impl MonitorApp {
             is_elevated: check_elevated(),
             card_anim:    card_anim_init,
             compact_anim: compact_anim_init,
+            prev_render_compact: None,
+            saved_normal_height: None,
         }
     }
 
@@ -328,6 +335,21 @@ fn smootherstep(t: f32) -> f32 {
 fn move_toward(val: &mut f32, target: f32, step: f32) {
     let diff = target - *val;
     if diff.abs() <= step { *val = target; } else { *val += diff.signum() * step; }
+}
+
+/// Compute the window height that exactly fits the compact layout for the given config.
+///
+/// Formula: titlebar(36) + panel_margins(24) + n_cards × row_height + (n_cards−1) × item_spacing
+/// where row_height = card_content(font_size+12, min 24) + frame_overhead(14).
+fn compact_window_height(vis: &CardVisibility) -> f32 {
+    let n_optional = [vis.show_fps, vis.show_gpu, vis.show_net, vis.show_disk, vis.show_temp]
+        .iter()
+        .filter(|&&x| x)
+        .count();
+    let n = 2 + n_optional;  // CPU + MEM always shown
+    let row_h = (vis.compact_font_size + 12.0).max(24.0) + 14.0; // content + frame overhead
+    let content_h = n as f32 * row_h + (n.saturating_sub(1)) as f32 * 2.0;
+    36.0 + 24.0 + content_h  // titlebar + panel inner_margins + content
 }
 
 /// Interpolate display buffer element-by-element between prev and curr using
@@ -476,6 +498,25 @@ impl eframe::App for MonitorApp {
             self.prev_compact_mode = Some(compact_mode);
             let min_w = if compact_mode { 110.0f32 } else { 200.0f32 };
             ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(min_w, 200.0)));
+        }
+
+        // Snap window height at the moment compact_anim crosses 0.5 — that is exactly
+        // when the content opacity is 0 and the layout switches, so the resize is invisible.
+        let render_compact_now = self.compact_anim > 0.5;
+        if self.prev_render_compact != Some(render_compact_now) {
+            self.prev_render_compact = Some(render_compact_now);
+            let cur_w = ctx.input(|i| i.viewport().inner_rect)
+                .map(|r| r.width()).unwrap_or(350.0);
+            let cur_h = ctx.input(|i| i.viewport().inner_rect)
+                .map(|r| r.height()).unwrap_or(650.0);
+            if render_compact_now {
+                self.saved_normal_height = Some(cur_h);
+                let vis = self.card_vis.lock().map(|v| v.clone()).unwrap_or_default();
+                let new_h = compact_window_height(&vis);
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(cur_w, new_h)));
+            } else if let Some(h) = self.saved_normal_height {
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(cur_w, h)));
+            }
         }
 
         // Passthrough (game overlay): armed via config, Ctrl held → temporarily interactive
