@@ -164,6 +164,9 @@ pub struct MonitorApp {
     prev_render_compact: Option<bool>,
     /// Window height saved just before entering compact mode, restored on exit.
     saved_normal_height: Option<f32>,
+    /// Tracks which optional cards were shown last frame so we can snap the
+    /// window height whenever a card is added or removed.
+    prev_shown_cards: [bool; 5],
 }
 
 impl MonitorApp {
@@ -231,8 +234,13 @@ impl MonitorApp {
             is_elevated: check_elevated(),
             card_anim:    card_anim_init,
             compact_anim: compact_anim_init,
-            prev_render_compact: None,
+            // Seed to match the actual startup layout so frame 1 doesn't trigger a spurious resize.
+            prev_render_compact: Some(compact_anim_init > 0.5),
             saved_normal_height: None,
+            prev_shown_cards: [
+                vis_init.show_fps, vis_init.show_gpu, vis_init.show_net,
+                vis_init.show_disk, vis_init.show_temp,
+            ],
         }
     }
 
@@ -335,6 +343,20 @@ fn smootherstep(t: f32) -> f32 {
 fn move_toward(val: &mut f32, target: f32, step: f32) {
     let diff = target - *val;
     if diff.abs() <= step { *val = target; } else { *val += diff.signum() * step; }
+}
+
+/// Compute the window height that fits the normal-mode card layout for the given config.
+///
+/// Card height estimate: spectrum(44) + header(14) + stat_line(12) + internal spacing(9)
+/// + frame overhead(16) ≈ 95 px.  Item spacing between cards = 4 px.
+fn normal_window_height(vis: &CardVisibility) -> f32 {
+    let n_optional = [vis.show_fps, vis.show_gpu, vis.show_net, vis.show_disk, vis.show_temp]
+        .iter()
+        .filter(|&&x| x)
+        .count();
+    let n = 2 + n_optional;
+    let content_h = n as f32 * 95.0 + (n.saturating_sub(1)) as f32 * 4.0;
+    36.0 + 24.0 + content_h  // titlebar + panel inner_margins + content
 }
 
 /// Compute the window height that exactly fits the compact layout for the given config.
@@ -504,17 +526,33 @@ impl eframe::App for MonitorApp {
         // when the content opacity is 0 and the layout switches, so the resize is invisible.
         let render_compact_now = self.compact_anim > 0.5;
         if self.prev_render_compact != Some(render_compact_now) {
+            // Read the previous state BEFORE updating it so we can detect direction.
+            let came_from_normal = self.prev_render_compact == Some(false);
             self.prev_render_compact = Some(render_compact_now);
+
             let cur_w = ctx.input(|i| i.viewport().inner_rect)
                 .map(|r| r.width()).unwrap_or(350.0);
-            let cur_h = ctx.input(|i| i.viewport().inner_rect)
-                .map(|r| r.height()).unwrap_or(650.0);
             if render_compact_now {
-                self.saved_normal_height = Some(cur_h);
+                // Only save the normal height when we know we were actually in normal mode
+                // (not on startup when compact_mode was already true).
+                if came_from_normal {
+                    self.saved_normal_height = Some(
+                        ctx.input(|i| i.viewport().inner_rect)
+                            .map(|r| r.height())
+                            .unwrap_or(650.0),
+                    );
+                }
                 let vis = self.card_vis.lock().map(|v| v.clone()).unwrap_or_default();
                 let new_h = compact_window_height(&vis);
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(cur_w, new_h)));
-            } else if let Some(h) = self.saved_normal_height {
+            } else {
+                // Restore the saved normal height, or compute a sensible fit for the
+                // number of active cards if we never recorded a normal-mode height
+                // (e.g. app was launched directly in compact mode).
+                let h = self.saved_normal_height.unwrap_or_else(|| {
+                    let vis = self.card_vis.lock().map(|v| v.clone()).unwrap_or_default();
+                    normal_window_height(&vis)
+                });
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(cur_w, h)));
             }
         }
