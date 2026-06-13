@@ -1,6 +1,6 @@
 //! Spectrum-analyser metric cards — glowing bars + reflections for all metrics.
 
-use egui::{Align, Align2, Color32, FontFamily, FontId, Layout, Rounding, Sense, Vec2};
+use egui::{Align, Align2, Color32, FontFamily, FontId, Layout, Rect, Rounding, Sense, Vec2};
 
 use crate::{
     app::{CardVisibility, MonitorApp},
@@ -21,25 +21,99 @@ const NARROW: f32 = 115.0;
 // ── Grid entry point ──────────────────────────────────────────────────────────
 
 pub fn show_grid(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot, fps: &FpsSnapshot, vis: &CardVisibility) {
-    if vis.compact_mode {
+    // Compact↔normal cross-dissolve: fade out the old layout, fade in the new one.
+    // compact_anim: 0.0=fully normal, 1.0=fully compact.  Switch layout at midpoint
+    // (opacity 0) so the snap is invisible.
+    let compact_anim = app.compact_anim;
+    let render_compact = compact_anim > 0.5;
+    if compact_anim > 0.001 && compact_anim < 0.999 {
+        let fade = if compact_anim <= 0.5 {
+            1.0 - compact_anim * 2.0   // fade out normal
+        } else {
+            (compact_anim - 0.5) * 2.0 // fade in compact
+        };
+        ui.set_opacity(fade);
+    }
+
+    if render_compact {
         let fs = vis.compact_font_size;
         ui.spacing_mut().item_spacing.y = 2.0;
-        compact_row(ui, &app.theme, "CPU",  app.theme.accent_cpu,  &compact_cpu_val(app, snap),  compact_cpu_color(app, snap),  fs);
-        compact_row(ui, &app.theme, "MEM",  app.theme.accent_mem,  &compact_mem_val(app, snap),  compact_mem_color(app, snap),  fs);
-        if vis.show_fps  { compact_row(ui, &app.theme, "FPS",  app.theme.accent_net,  &compact_fps_val(fps),        compact_fps_color(app, fps),  fs); }
-        if vis.show_gpu  { compact_row(ui, &app.theme, "GPU",  app.theme.accent_gpu,  &compact_gpu_val(app, snap),  compact_gpu_color(app, snap), fs); }
-        if vis.show_net  { compact_row(ui, &app.theme, "NET",  app.theme.accent_net,  &compact_net_val(snap),       app.theme.accent_net,         fs); }
-        if vis.show_disk { compact_row(ui, &app.theme, "DISK", app.theme.accent_disk, &compact_disk_val(app, snap), compact_disk_color(app, snap),fs); }
-        if vis.show_temp { compact_row(ui, &app.theme, "TEMP", app.theme.accent_temp, &compact_temp_val(snap),      compact_temp_color(app, snap),fs); }
+        compact_row(ui, &app.theme, "CPU",  app.theme.accent_cpu, &compact_cpu_val(app, snap), compact_cpu_color(app, snap), fs);
+        compact_row(ui, &app.theme, "MEM",  app.theme.accent_mem, &compact_mem_val(app, snap), compact_mem_color(app, snap), fs);
+        draw_card_anim(ui, app, 0, |ui, app| {
+            let val = compact_fps_val(fps);
+            let col = compact_fps_color(app, fps);
+            compact_row(ui, &app.theme, "FPS", app.theme.accent_net, &val, col, fs);
+        });
+        draw_card_anim(ui, app, 1, |ui, app| {
+            let val = compact_gpu_val(app, snap);
+            let col = compact_gpu_color(app, snap);
+            compact_row(ui, &app.theme, "GPU", app.theme.accent_gpu, &val, col, fs);
+        });
+        draw_card_anim(ui, app, 2, |ui, app| {
+            let val = compact_net_val(snap);
+            compact_row(ui, &app.theme, "NET", app.theme.accent_net, &val, app.theme.accent_net, fs);
+        });
+        draw_card_anim(ui, app, 3, |ui, app| {
+            let val = compact_disk_val(app, snap);
+            let col = compact_disk_color(app, snap);
+            compact_row(ui, &app.theme, "DISK", app.theme.accent_disk, &val, col, fs);
+        });
+        draw_card_anim(ui, app, 4, |ui, app| {
+            let val = compact_temp_val(snap);
+            let col = compact_temp_color(app, snap);
+            compact_row(ui, &app.theme, "TEMP", app.theme.accent_temp, &val, col, fs);
+        });
     } else {
         ui.spacing_mut().item_spacing.y = 4.0;
         cpu_card(app, ui, snap);
         memory_card(app, ui, snap);
-        if vis.show_fps  { fps_card(app, ui, fps); }
-        if vis.show_gpu  { gpu_card(app, ui, snap); }
-        if vis.show_net  { network_card(app, ui, snap); }
-        if vis.show_disk { disk_card(app, ui, snap); }
-        if vis.show_temp { temps_card(app, ui, snap); }
+        draw_card_anim(ui, app, 0, |ui, app| fps_card(app, ui, fps));
+        draw_card_anim(ui, app, 1, |ui, app| gpu_card(app, ui, snap));
+        draw_card_anim(ui, app, 2, |ui, app| network_card(app, ui, snap));
+        draw_card_anim(ui, app, 3, |ui, app| disk_card(app, ui, snap));
+        draw_card_anim(ui, app, 4, |ui, app| temps_card(app, ui, snap));
+    }
+}
+
+/// Render an optional card with a height-collapse animation.
+///
+/// `slot` indexes [fps=0, gpu=1, net=2, disk=3, temp=4].  When fully shown the
+/// card renders normally and its height is measured for future collapse frames.
+/// When partially collapsed the card's allocated space shrinks while content is
+/// clipped, so surrounding cards slide smoothly to fill the vacated space.
+fn draw_card_anim<F>(ui: &mut Ui, app: &mut MonitorApp, slot: usize, draw_fn: F)
+where
+    F: FnOnce(&mut Ui, &mut MonitorApp),
+{
+    let scale     = app.card_anim.scale[slot];
+    let stored_h  = app.card_anim.height[slot];
+
+    if scale <= 0.001 { return; }
+
+    if scale >= 0.999 {
+        // Fully visible — render normally and refresh the stored height.
+        let top = ui.cursor().top();
+        draw_fn(ui, app);
+        let spacing = ui.spacing().item_spacing.y;
+        let h = (ui.cursor().top() - top - spacing).max(0.0);
+        if h > 4.0 { app.card_anim.height[slot] = h; }
+    } else {
+        // Animating — allocate a collapsing slice of vertical space and clip the
+        // card content into it so surrounding cards slide smoothly.
+        let alloc_h  = (stored_h * scale).max(1.0);
+        let avail_w  = ui.available_width();
+        let (clip_rect, _) = ui.allocate_exact_size(Vec2::new(avail_w, alloc_h), Sense::hover());
+        let full_rect = Rect::from_min_size(clip_rect.min, Vec2::new(avail_w, stored_h));
+        #[allow(deprecated)]
+        let mut child = ui.child_ui_with_id_source(
+            full_rect,
+            Layout::top_down(Align::LEFT),
+            slot,
+            None,
+        );
+        child.set_clip_rect(child.clip_rect().intersect(clip_rect));
+        draw_fn(&mut child, app);
     }
 }
 

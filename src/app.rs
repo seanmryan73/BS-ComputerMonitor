@@ -42,6 +42,30 @@ pub struct CardVisibility {
 fn default_opacity() -> f32 { 1.0 }
 fn default_compact_font_size() -> f32 { 22.0 }
 
+/// Per-card collapse animation state for the 5 optional cards [fps, gpu, net, disk, temp].
+pub struct CardAnim {
+    /// Visual scale: 0.0 = fully collapsed/hidden, 1.0 = fully shown.
+    pub scale:  [f32; 5],
+    /// Last measured card content height (px, excluding item_spacing) — used as
+    /// the collapse target so surrounding cards slide smoothly as this one shrinks.
+    pub height: [f32; 5],
+}
+
+impl CardAnim {
+    fn new(vis: &CardVisibility) -> Self {
+        Self {
+            scale: [
+                if vis.show_fps  { 1.0 } else { 0.0 },
+                if vis.show_gpu  { 1.0 } else { 0.0 },
+                if vis.show_net  { 1.0 } else { 0.0 },
+                if vis.show_disk { 1.0 } else { 0.0 },
+                if vis.show_temp { 1.0 } else { 0.0 },
+            ],
+            height: [95.0; 5],
+        }
+    }
+}
+
 impl Default for CardVisibility {
     fn default() -> Self {
         Self {
@@ -129,6 +153,12 @@ pub struct MonitorApp {
     pub passthrough_active: bool,
     pub prev_show_about: bool,
     pub is_elevated: bool,
+
+    /// Per-card collapse/expand animation (height squish).
+    pub card_anim: CardAnim,
+    /// 0.0 = fully in normal mode, 1.0 = fully in compact mode.
+    /// Drives the cross-dissolve when the user switches between modes.
+    pub compact_anim: f32,
 }
 
 impl MonitorApp {
@@ -141,6 +171,10 @@ impl MonitorApp {
 
         let fps = Arc::new(RwLock::new(FpsSnapshot::default()));
         fps_collector::start(Arc::clone(&fps));
+
+        let vis_init = CardVisibility::load();
+        let card_anim_init    = CardAnim::new(&vis_init);
+        let compact_anim_init = if vis_init.compact_mode { 1.0_f32 } else { 0.0_f32 };
 
         Self {
             snapshot,
@@ -180,7 +214,7 @@ impl MonitorApp {
                 .unwrap_or_else(std::time::Instant::now),
             first_tick: true,
             show_about: false,
-            card_vis: Arc::new(Mutex::new(CardVisibility::load())),
+            card_vis: Arc::new(Mutex::new(vis_init)),
             hwnd: None,
             applied_opacity: -1.0, // force first-frame application
             opacity_startup_frames: 0,
@@ -190,6 +224,8 @@ impl MonitorApp {
             passthrough_active: false,
             prev_show_about: false,
             is_elevated: check_elevated(),
+            card_anim:    card_anim_init,
+            compact_anim: compact_anim_init,
         }
     }
 
@@ -262,6 +298,23 @@ impl MonitorApp {
         interp_buf(&mut self.disp_temp_gpu, &self.prev_temp_gpu, &self.hist_temp_gpu.as_vec(), t);
         interp_buf(&mut self.disp_disk,     &self.prev_disk,     &self.hist_disk.as_vec(),     t);
     }
+
+    /// Advance card-collapse and compact-mode cross-dissolve animations.
+    pub fn advance_card_anims(&mut self, dt: f32, vis: &CardVisibility) {
+        const CARD_SPD:    f32 = 5.0;  // 200 ms full collapse/expand
+        const COMPACT_SPD: f32 = 4.0;  // 250 ms full mode cross-dissolve
+
+        let step = dt * CARD_SPD;
+        let shows = [vis.show_fps, vis.show_gpu, vis.show_net, vis.show_disk, vis.show_temp];
+        for (i, &show) in shows.iter().enumerate() {
+            move_toward(&mut self.card_anim.scale[i], if show { 1.0 } else { 0.0 }, step);
+        }
+        move_toward(
+            &mut self.compact_anim,
+            if vis.compact_mode { 1.0 } else { 0.0 },
+            dt * COMPACT_SPD,
+        );
+    }
 }
 
 /// Smootherstep: Ken Perlin's C1-continuous S-curve.  Starts slow, eases
@@ -269,6 +322,12 @@ impl MonitorApp {
 fn smootherstep(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+}
+
+/// Move `val` toward `target` by at most `step`, clamping at target.
+fn move_toward(val: &mut f32, target: f32, step: f32) {
+    let diff = target - *val;
+    if diff.abs() <= step { *val = target; } else { *val += diff.signum() * step; }
 }
 
 /// Interpolate display buffer element-by-element between prev and curr using
@@ -438,6 +497,8 @@ impl eframe::App for MonitorApp {
 
         let dt = ctx.input(|i| i.unstable_dt).min(0.05);
         self.advance_displays(dt);
+        let vis_snap = self.card_vis.lock().map(|v| v.clone()).unwrap_or_default();
+        self.advance_card_anims(dt, &vis_snap);
 
         ui::draw(self, ctx, frame, &snap, &fps_snap);
     }
