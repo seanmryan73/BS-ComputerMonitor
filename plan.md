@@ -69,3 +69,70 @@
 | GPU utilization may show N/A | Requires Win10 1709+ WMI perf counters | Fallback to DXGI or nvml-wrapper |
 | Temps may be empty | Needs admin or compatible sensors | LHM/OHM WMI provider fallback |
 | No per-process network | ETW complexity | etw-reader crate |
+| RTX 5040 (Blackwell) GPU not working | See investigation note below | Needs machine access to diagnose |
+
+---
+
+## RTX 5040 (Blackwell) GPU — Pending Investigation
+
+**Requires access to the RTX 5040 machine to diagnose and verify.**
+
+### Background
+The app uses standard Windows APIs (WMI, PDH, DXGI) — no NVML — so this is not a driver
+SDK version issue.  The most likely culprit is the PDH 3D engine name filter in
+`src/collector.rs` `pdh_read_util()`.
+
+### How GPU utilization is collected
+`pdh_read_util()` opens the counter `\\GPU Engine(*)\\Utilization Percentage` (WDDM 2.7+)
+or `\\GPU Engine(*)\\% GPU Time` (older), then sums only the instances whose name contains
+`"3d"` to match Task Manager's "3D" row.
+
+Blackwell (RTX 50 series) changed how WDDM reports engine types in PDH instance names.
+If the RTX 5040's compute/3D engines no longer carry the string `"3d"`, utilization
+reads as 0 and the card shows as unavailable.
+
+### Step 1 — Run a diagnostic build on the 5040 machine
+Add a temporary `eprintln!` (or write to a log file) inside `pdh_read_util()` that dumps
+every instance name returned by `PdhGetFormattedCounterArrayW` before the `"3d"` filter.
+This tells us exactly what strings Blackwell uses.
+
+The relevant code is in `src/collector.rs` around the `pdh_read_util` function:
+```rust
+// Temporary diagnostic — print all PDH GPU engine instance names
+for item in &items {
+    eprintln!("[GPU-DIAG] instance: {}", item.szName.to_string().unwrap_or_default());
+}
+```
+
+Run with `cargo run 2> gpu_diag.txt` and share `gpu_diag.txt`.
+
+### Step 2 — Fix the filter
+Depending on what the diagnostic shows, one of:
+
+**Option A — Update the string filter** if Blackwell uses a different but consistent name
+(e.g. `"compute"` or `"3D"` with different capitalisation):
+```rust
+// In pdh_read_util(), change:
+if name.to_ascii_lowercase().contains("3d") { ... }
+// to whatever Blackwell actually uses
+```
+
+**Option B — Broaden the fallback** if no matching 3D instances are found, sum all
+engines except known non-compute ones (`"videodecode"`, `"videoprocessing"`, `"copy"`):
+```rust
+// If no "3d" instances found, fall back to summing everything except decode/copy
+let filtered: Vec<_> = items.iter().filter(|i| {
+    let n = i.szName.to_ascii_lowercase();
+    !n.contains("videodecode") && !n.contains("videoprocessing") && !n.contains("copy")
+}).collect();
+```
+
+**Option C — Match Task Manager exactly** by reading the engine type field from the
+instance name (WDDM encodes it as `luid_0x…_phys_0_eng_0_engtype_3D`) — parse the
+`engtype_` suffix instead of matching on `"3d"`.
+
+### Step 3 — Verify
+On the 5040 machine, confirm the GPU card shows utilization, VRAM used/total, and
+temperature.  Also check that WMI `Win32_VideoController` picks up the RTX 5040 name
+correctly (the `WHERE AdapterRAM > 0` filter and max-VRAM selection should be fine, but
+worth verifying if the name field is blank).
