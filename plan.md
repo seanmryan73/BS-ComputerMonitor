@@ -34,10 +34,10 @@
 
 ## Next — Visual Polish
 
-- [ ] **Gradient bars** — paint fill with a left→right colour fade using `egui::Painter::mesh()`; cyan→teal for CPU, amber→orange for memory
-- [ ] **Glow on card borders** — subtle outer shadow via multiple strokes at decreasing alpha
-- [ ] **Custom font** — embed JetBrains Mono via `egui::FontDefinitions`; add it as a file in `assets/`
-- [ ] **Card hover highlight** — faint border brighten on hover; tune the colour
+- [x] **Gradient bars** — left→right mesh gradient on fill bars (bright left → deep right, all metrics)
+- [x] **Glow on card borders** — subtle outer shadow via multiple strokes at decreasing alpha
+- [x] **Custom font** — JetBrains Mono (values) + Cascadia Mono (labels) embedded via `egui::FontDefinitions`
+- [x] **Card hover highlight** — spine + border brighten on hover
 
 ---
 

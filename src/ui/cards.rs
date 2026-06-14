@@ -7,7 +7,7 @@ use crate::{
     models::{fmt_bytes, fmt_bps_parts, FpsSnapshot, SystemSnapshot},
 };
 
-use super::widgets::{glow_card, mini_sparkline};
+use super::widgets::{bar_fill_gradient, glow_card, mini_sparkline};
 
 // ── Grid entry point ──────────────────────────────────────────────────────────
 
@@ -213,14 +213,18 @@ fn compact_row(
                 Color32::from_rgba_unmultiplied(r, g, b, 22));
             let fill_w = rect.width() * (pct / 100.0).clamp(0.0, 1.0);
             if fill_w > 0.5 {
-                p.rect_filled(
-                    egui::Rect::from_min_max(
-                        egui::pos2(rect.min.x, bar_top),
-                        egui::pos2(rect.min.x + fill_w, bar_bot),
-                    ),
-                    Rounding::same(1.5),
-                    Color32::from_rgba_unmultiplied(r, g, b, 160),
+                let fill_rect = egui::Rect::from_min_max(
+                    egui::pos2(rect.min.x, bar_top),
+                    egui::pos2(rect.min.x + fill_w, bar_bot),
                 );
+                let left_col  = Color32::from_rgba_unmultiplied(r, g, b, 190);
+                let right_col = Color32::from_rgba_unmultiplied(
+                    (r as u32 * 50 / 100).min(255) as u8,
+                    (g as u32 * 60 / 100).min(255) as u8,
+                    (b as u32 * 55 / 100).min(255) as u8,
+                    110,
+                );
+                bar_fill_gradient(p, fill_rect, left_col, right_col);
             }
             // Session peak tick
             if let Some(peak) = peak_pct {

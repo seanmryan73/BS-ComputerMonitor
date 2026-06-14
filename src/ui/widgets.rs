@@ -1,7 +1,7 @@
 //! Reusable low-level widgets: sparkline, card frame, glow card.
 
 use egui::{
-    Color32, Frame, Margin, Mesh, Rounding, Sense, Shape, Stroke, Ui, Vec2,
+    Color32, Frame, Margin, Mesh, Rounding, Shape, Stroke, Ui,
 };
 
 use crate::theme::Theme;
@@ -34,6 +34,22 @@ fn cr_pt(p0: egui::Pos2, p1: egui::Pos2, p2: egui::Pos2, p3: egui::Pos2, t: f32)
         0.5 * ((2.0 * b) + (-a + c) * t + (2.0*a - 5.0*b + 4.0*c - d) * t2 + (-a + 3.0*b - 3.0*c + d) * t3)
     };
     egui::pos2(f(p0.x, p1.x, p2.x, p3.x), f(p0.y, p1.y, p2.y, p3.y))
+}
+
+/// Left→right gradient fill for a metric bar — a mesh quad going from `left_col` to `right_col`.
+pub fn bar_fill_gradient(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    left_col: Color32,
+    right_col: Color32,
+) {
+    let mut mesh = Mesh::default();
+    mesh.colored_vertex(rect.left_top(),     left_col);
+    mesh.colored_vertex(rect.right_top(),    right_col);
+    mesh.colored_vertex(rect.right_bottom(), right_col);
+    mesh.colored_vertex(rect.left_bottom(),  left_col);
+    mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+    painter.add(Shape::Mesh(mesh));
 }
 
 /// Fills the area between `curve` and `floor_y` with a top→transparent gradient mesh.

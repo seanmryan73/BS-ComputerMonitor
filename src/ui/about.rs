@@ -210,7 +210,7 @@ pub fn show(
                             let clamped = vis.selected_gpu_index.min(gpu_names.len().saturating_sub(1));
                             let selected_name = gpu_names.get(clamped).cloned().unwrap_or_default();
                             let prev = vis.selected_gpu_index;
-                            egui::ComboBox::from_id_source("gpu_select")
+                            egui::ComboBox::from_id_salt("gpu_select")
                                 .selected_text(
                                     RichText::new(&selected_name)
                                         .monospace()
@@ -260,7 +260,7 @@ pub fn show(
                                 .map(|&(_, l)| l)
                                 .unwrap_or("Custom");
                             let prev = vis.net_cap_mbps;
-                            egui::ComboBox::from_id_source("net_cap_select")
+                            egui::ComboBox::from_id_salt("net_cap_select")
                                 .selected_text(
                                     RichText::new(cur_label)
                                         .monospace()

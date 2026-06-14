@@ -118,23 +118,4 @@ impl Theme {
         ctx.set_style(style);
     }
 
-    pub fn health_color(&self, pct: f32, warn_at: f32, crit_at: f32) -> Color32 {
-        if pct >= crit_at {
-            self.crit
-        } else if pct >= warn_at {
-            self.warn
-        } else {
-            self.ok
-        }
-    }
-
-    /// Dim version of a colour for empty bar track
-    pub fn dim(color: Color32) -> Color32 {
-        Color32::from_rgba_premultiplied(
-            (color.r() as u16 * 25 / 100) as u8,
-            (color.g() as u16 * 25 / 100) as u8,
-            (color.b() as u16 * 25 / 100) as u8,
-            200,
-        )
-    }
 }
