@@ -64,13 +64,18 @@ impl Default for Theme {
 
 impl Theme {
     pub fn apply(&self, ctx: &egui::Context) {
-        // Embed CascadiaMono as the UI font (monospace + proportional)
         let mut fonts = egui::FontDefinitions::default();
+        fonts.font_data.insert(
+            "JetBrainsMono".to_owned(),
+            egui::FontData::from_static(include_bytes!("../assets/JetBrainsMono-Regular.ttf")),
+        );
         fonts.font_data.insert(
             "CascadiaMono".to_owned(),
             egui::FontData::from_static(include_bytes!("../assets/CascadiaMono.ttf")),
         );
-        fonts.families.entry(egui::FontFamily::Monospace).or_default().insert(0, "CascadiaMono".to_owned());
+        // JetBrains Mono as primary monospace (numbers/values), Cascadia as fallback.
+        fonts.families.entry(egui::FontFamily::Monospace).or_default().insert(0, "JetBrainsMono".to_owned());
+        // Proportional labels use CascadiaMono for a uniform mono aesthetic.
         fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, "CascadiaMono".to_owned());
         ctx.set_fonts(fonts);
 

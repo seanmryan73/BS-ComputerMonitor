@@ -14,18 +14,19 @@ use sysinfo::{
     Components, CpuRefreshKind, Disks, MemoryRefreshKind, Networks, RefreshKind, System,
 };
 
-use crate::models::*;
+use crate::{app::CardVisibility, models::*};
+use std::sync::Mutex;
 
 pub const INTERVAL: Duration = Duration::from_secs(2);
 
-pub fn start(snapshot: Arc<RwLock<SystemSnapshot>>) {
+pub fn start(snapshot: Arc<RwLock<SystemSnapshot>>, card_vis: Arc<Mutex<CardVisibility>>) {
     thread::Builder::new()
         .name("collector".into())
-        .spawn(move || run(snapshot))
+        .spawn(move || run(snapshot, card_vis))
         .expect("failed to spawn collector thread");
 }
 
-fn run(snapshot: Arc<RwLock<SystemSnapshot>>) {
+fn run(snapshot: Arc<RwLock<SystemSnapshot>>, card_vis: Arc<Mutex<CardVisibility>>) {
     let refresh = RefreshKind::new()
         .with_cpu(CpuRefreshKind::everything())
         .with_memory(MemoryRefreshKind::everything());
@@ -52,7 +53,9 @@ fn run(snapshot: Arc<RwLock<SystemSnapshot>>) {
         components.refresh();
 
         #[cfg(windows)]
-        let (gpu, acpi_cpu_temp) = gpu_win::collect(&mut gpu_col);
+        let selected_gpu = card_vis.lock().map(|g| g.selected_gpu_index).unwrap_or(0);
+        #[cfg(windows)]
+        let (gpu, acpi_cpu_temp) = gpu_win::collect(&mut gpu_col, selected_gpu);
         #[cfg(not(windows))]
         let (gpu, acpi_cpu_temp) = (GpuSnapshot::default(), None::<f32>);
 
@@ -208,11 +211,13 @@ mod gpu_win {
     }
 
     pub struct GpuCollector {
-        com:          Option<COMLibrary>,
-        conn:         Option<WMIConnection>,
-        thermal_conn: Option<WMIConnection>,
-        cached_name:  String,
-        pdh:          Option<PdhGpuState>,
+        com:           Option<COMLibrary>,
+        conn:          Option<WMIConnection>,
+        thermal_conn:  Option<WMIConnection>,
+        cached_name:   String,
+        pdh:           Option<PdhGpuState>,
+        /// Hardware GPU adapters enumerated at startup: (name, dedicated_vram_bytes).
+        adapter_descs: Vec<(String, u64)>,
     }
 
     impl GpuCollector {
@@ -220,6 +225,7 @@ mod gpu_win {
             let mut col = Self {
                 com: None, conn: None, thermal_conn: None,
                 cached_name: String::new(), pdh: None,
+                adapter_descs: enumerate_dxgi_adapters(),
             };
             if let Ok(com) = COMLibrary::new() {
                 if let Ok(conn) = WMIConnection::new(com.clone()) {
@@ -304,7 +310,7 @@ mod gpu_win {
         }
     }
 
-    pub fn collect(col: &mut GpuCollector) -> (GpuSnapshot, Option<f32>) {
+    pub fn collect(col: &mut GpuCollector, selected_index: usize) -> (GpuSnapshot, Option<f32>) {
         // Advance PDH — computes delta from the previous seed/collect call.
         if let Some(pdh) = &col.pdh {
             unsafe { PdhCollectQueryData(pdh.query); }
@@ -312,15 +318,23 @@ mod gpu_win {
 
         let utilization = col.pdh.as_ref().and_then(pdh_read_util);
         let vram_used   = col.pdh.as_ref().map_or(0, pdh_read_vram_used);
-        let vram_total  = query_vram_total_dxgi().unwrap_or(0);
+
+        // Clamp selected index to valid range in case saved config has stale value.
+        let clamped = selected_index.min(col.adapter_descs.len().saturating_sub(1));
+        let (name, vram_total) = col.adapter_descs.get(clamped)
+            .map(|(n, v)| (n.clone(), *v))
+            .unwrap_or_else(|| (col.cached_name.clone(), 0));
+
+        let available_names: Vec<String> = col.adapter_descs.iter().map(|(n, _)| n.clone()).collect();
 
         let gpu = GpuSnapshot {
-            name:                col.cached_name.clone(),
+            name:                if !name.is_empty() { name } else { col.cached_name.clone() },
             utilization_percent: utilization,
             vram_used_bytes:     vram_used,
             vram_total_bytes:    vram_total,
             temperature_celsius: None,
-            available:           !col.cached_name.is_empty(),
+            available:           !col.adapter_descs.is_empty() || !col.cached_name.is_empty(),
+            available_names,
         };
         let cpu_temp = query_acpi_cpu_temp(col);
         (gpu, cpu_temp)
@@ -396,15 +410,17 @@ mod gpu_win {
         String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len))
     }
 
-    /// Total dedicated VRAM (bytes) via DXGI — 64-bit, no 4 GB cap.
-    fn query_vram_total_dxgi() -> Option<u64> {
+    /// Enumerate all hardware GPU adapters via DXGI, returning (name, dedicated_vram_bytes).
+    fn enumerate_dxgi_adapters() -> Vec<(String, u64)> {
         use windows::Win32::Graphics::Dxgi::{
             CreateDXGIFactory1, IDXGIFactory1, DXGI_ADAPTER_DESC1,
         };
         const SW_FLAG: u32 = 2; // DXGI_ADAPTER_FLAG_SOFTWARE
         unsafe {
-            let factory: IDXGIFactory1 = CreateDXGIFactory1().ok()?;
-            let mut best: usize = 0;
+            let Ok(factory): Result<IDXGIFactory1, _> = CreateDXGIFactory1() else {
+                return Vec::new();
+            };
+            let mut adapters = Vec::new();
             let mut i = 0u32;
             loop {
                 let adapter = match factory.EnumAdapters1(i) { Ok(a) => a, Err(_) => break };
@@ -412,9 +428,11 @@ mod gpu_win {
                 let mut desc = DXGI_ADAPTER_DESC1::default();
                 if adapter.GetDesc1(&mut desc).is_err() { continue; }
                 if (desc.Flags & SW_FLAG) != 0 { continue; }
-                if desc.DedicatedVideoMemory > best { best = desc.DedicatedVideoMemory; }
+                let end = desc.Description.iter().position(|&c| c == 0).unwrap_or(128);
+                let name = String::from_utf16_lossy(&desc.Description[..end]);
+                adapters.push((name, desc.DedicatedVideoMemory as u64));
             }
-            if best > 0 { Some(best as u64) } else { None }
+            adapters
         }
     }
 

@@ -58,6 +58,8 @@ pub struct GpuSnapshot {
     pub vram_total_bytes: u64,
     pub temperature_celsius: Option<f32>,
     pub available: bool,
+    /// All hardware GPU adapter names enumerated at startup (DXGI order).
+    pub available_names: Vec<String>,
 }
 
 impl GpuSnapshot {

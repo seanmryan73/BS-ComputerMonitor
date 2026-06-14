@@ -15,6 +15,7 @@ pub fn show(
     card_vis: Arc<Mutex<CardVisibility>>,
     initial_pos: Option<egui::Pos2>,
     is_elevated: bool,
+    gpu_names: Vec<String>,
 ) {
     let close_id = egui::Id::new(CLOSE_ID);
     if ctx.data(|d| d.get_temp::<bool>(close_id).unwrap_or(false)) {
@@ -43,6 +44,7 @@ pub fn show(
         builder,
         move |ctx, _class| {
             let is_elevated = is_elevated;
+            let gpu_names = gpu_names.clone();
             if ctx.input(|i| i.viewport().close_requested()) {
                 ctx.data_mut(|d| d.insert_temp(egui::Id::new(CLOSE_ID), true));
             }
@@ -184,6 +186,34 @@ pub fn show(
                             let c4 = toggle(ui, theme, &mut vis.show_disk, "DISK");
                             let c5 = toggle(ui, theme, &mut vis.show_temp, "TEMP");
                             if c1 || c2 || c3 || c4 || c5 { vis.save(); }
+                        }
+
+                        // ── GPU Adapter (only shown when 2+ GPUs detected) ─
+                        if gpu_names.len() > 1 {
+                            section(ui, theme, "GPU ADAPTER");
+                            if let Ok(mut vis) = card_vis.lock() {
+                                let clamped = vis.selected_gpu_index.min(gpu_names.len().saturating_sub(1));
+                                let selected_name = gpu_names.get(clamped).cloned().unwrap_or_default();
+                                let prev = vis.selected_gpu_index;
+                                egui::ComboBox::from_id_source("gpu_select")
+                                    .selected_text(
+                                        RichText::new(&selected_name)
+                                            .monospace()
+                                            .size(10.0)
+                                            .color(theme.text_primary),
+                                    )
+                                    .width(ui.available_width() - 8.0)
+                                    .show_ui(ui, |ui| {
+                                        for (i, name) in gpu_names.iter().enumerate() {
+                                            ui.selectable_value(
+                                                &mut vis.selected_gpu_index,
+                                                i,
+                                                RichText::new(name).monospace().size(10.0),
+                                            );
+                                        }
+                                    });
+                                if vis.selected_gpu_index != prev { vis.save(); }
+                            }
                         }
 
                         // ── Window ────────────────────────────────────────

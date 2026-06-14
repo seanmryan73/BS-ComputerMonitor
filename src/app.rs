@@ -37,6 +37,9 @@ pub struct CardVisibility {
     pub always_on_top: bool,
     #[serde(skip)]
     pub passthrough_mode: bool,
+    /// Index into the DXGI hardware adapter list for the GPU card. Persisted.
+    #[serde(default)]
+    pub selected_gpu_index: usize,
 }
 
 fn default_opacity() -> f32 { 1.0 }
@@ -76,6 +79,7 @@ impl Default for CardVisibility {
             compact_font_size: 22.0,
             always_on_top: false,
             passthrough_mode: false,
+            selected_gpu_index: 0,
         }
     }
 }
@@ -177,7 +181,6 @@ impl MonitorApp {
         theme.apply(&cc.egui_ctx);
 
         let snapshot = Arc::new(RwLock::new(SystemSnapshot::default()));
-        collector::start(Arc::clone(&snapshot));
 
         let fps = Arc::new(RwLock::new(FpsSnapshot::default()));
         fps_collector::start(Arc::clone(&fps));
@@ -190,6 +193,10 @@ impl MonitorApp {
             vis_init.show_disk, vis_init.show_temp,
         ];
         let prev_font_size_init = vis_init.compact_font_size;
+
+        // Create card_vis Arc before starting the collector so it can read the selected GPU.
+        let card_vis_arc = Arc::new(Mutex::new(vis_init));
+        collector::start(Arc::clone(&snapshot), Arc::clone(&card_vis_arc));
 
         Self {
             snapshot,
@@ -229,7 +236,7 @@ impl MonitorApp {
                 .unwrap_or_else(std::time::Instant::now),
             first_tick: true,
             show_about: false,
-            card_vis: Arc::new(Mutex::new(vis_init)),
+            card_vis: card_vis_arc,
             hwnd: None,
             applied_opacity: -1.0, // force first-frame application
             opacity_startup_frames: 0,
