@@ -1,108 +1,114 @@
-//! Spectrum-analyser metric cards — glowing bars + reflections for all metrics.
+//! Compact metric cards — fill bar, mini sparkline, peak tick, pulse animation.
 
 use egui::{Align, Align2, Color32, FontFamily, FontId, Layout, Rect, Rounding, Sense, Vec2};
 
 use crate::{
     app::{CardVisibility, MonitorApp},
-    models::{fmt_bytes, fmt_bps, fmt_bps_parts, FpsSnapshot, SystemSnapshot},
+    models::{fmt_bytes, fmt_bps_parts, FpsSnapshot, SystemSnapshot},
 };
 
-use super::widgets::{fps_color, glow_card, spectrum_bars, vu_color};
-
-// Gradient endpoints: right-edge colour for the spectrum bar left→right fade
-const CPU_END: egui::Color32 = egui::Color32::from_rgb( 28, 130, 215); // sapphire → cobalt
-const MEM_END: egui::Color32 = egui::Color32::from_rgb(195,  75,  15); // amber → burnt umber
-
-const SPEC_H: f32 = 44.0;
-
-// Left-column pixel threshold below which stat text switches to abbreviated form
-const NARROW: f32 = 115.0;
+use super::widgets::{glow_card, mini_sparkline};
 
 // ── Grid entry point ──────────────────────────────────────────────────────────
 
-pub fn show_grid(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot, fps: &FpsSnapshot, vis: &CardVisibility) {
-    // Compact↔normal cross-dissolve: fade out the old layout, fade in the new one.
-    // compact_anim: 0.0=fully normal, 1.0=fully compact.  Switch layout at midpoint
-    // (opacity 0) so the snap is invisible.
-    let compact_anim = app.compact_anim;
-    let render_compact = compact_anim > 0.5;
-    if compact_anim > 0.001 && compact_anim < 0.999 {
-        let fade = if compact_anim <= 0.5 {
-            1.0 - compact_anim * 2.0   // fade out normal
-        } else {
-            (compact_anim - 0.5) * 2.0 // fade in compact
-        };
-        ui.set_opacity(fade);
-    }
+pub fn show_grid(
+    app: &mut MonitorApp,
+    ui: &mut Ui,
+    snap: &SystemSnapshot,
+    fps: &FpsSnapshot,
+    vis: &CardVisibility,
+) {
+    let fs = vis.compact_font_size;
+    ui.spacing_mut().item_spacing.y = 2.0;
 
-    if render_compact {
-        let fs = vis.compact_font_size;
-        ui.spacing_mut().item_spacing.y = 2.0;
-        compact_row(ui, &app.theme, "CPU",  app.theme.accent_cpu, &compact_cpu_val(app, snap), compact_cpu_color(app, snap), fs);
-        compact_row(ui, &app.theme, "MEM",  app.theme.accent_mem, &compact_mem_val(app, snap), compact_mem_color(app, snap), fs);
-        draw_card_anim(ui, app, 0, |ui, app| {
-            let val = compact_fps_val(fps);
-            let col = compact_fps_color(app, fps);
-            compact_row(ui, &app.theme, "FPS", app.theme.accent_net, &val, col, fs);
-        });
-        draw_card_anim(ui, app, 1, |ui, app| {
-            let val = compact_gpu_val(app, snap);
-            let col = compact_gpu_color(app, snap);
-            compact_row(ui, &app.theme, "GPU", app.theme.accent_gpu, &val, col, fs);
-        });
-        draw_card_anim(ui, app, 2, |ui, app| {
-            let val = compact_net_val(snap);
-            compact_row(ui, &app.theme, "NET", app.theme.accent_net, &val, app.theme.accent_net, fs);
-        });
-        draw_card_anim(ui, app, 3, |ui, app| {
-            let val = compact_disk_val(app, snap);
-            let col = compact_disk_color(app, snap);
-            compact_row(ui, &app.theme, "DISK", app.theme.accent_disk, &val, col, fs);
-        });
-        draw_card_anim(ui, app, 4, |ui, app| {
-            let val = compact_temp_val(snap);
-            let col = compact_temp_color(app, snap);
-            compact_row(ui, &app.theme, "TEMP", app.theme.accent_temp, &val, col, fs);
-        });
-    } else {
-        ui.spacing_mut().item_spacing.y = 4.0;
-        cpu_card(app, ui, snap);
-        memory_card(app, ui, snap);
-        draw_card_anim(ui, app, 0, |ui, app| fps_card(app, ui, fps));
-        draw_card_anim(ui, app, 1, |ui, app| gpu_card(app, ui, snap));
-        draw_card_anim(ui, app, 2, |ui, app| network_card(app, ui, snap));
-        draw_card_anim(ui, app, 3, |ui, app| disk_card(app, ui, snap));
-        draw_card_anim(ui, app, 4, |ui, app| temps_card(app, ui, snap));
+    {
+        let hist = app.hist_cpu.as_vec();
+        compact_row(ui, &app.theme, "CPU", app.theme.accent_cpu,
+            &compact_cpu_val(snap), compact_cpu_color(app, snap), fs,
+            Some(snap.cpu.total_usage), &compact_cpu_sub(snap),
+            &hist, 100.0, Some(app.peak_cpu));
     }
+    {
+        let hist = app.hist_mem.as_vec();
+        compact_row(ui, &app.theme, "MEM", app.theme.accent_mem,
+            &compact_mem_val(snap), compact_mem_color(app, snap), fs,
+            Some(snap.memory.usage_percent()), &compact_mem_sub(snap),
+            &hist, 100.0, Some(app.peak_mem));
+    }
+    draw_card_anim(ui, app, 0, |ui, app| {
+        let val  = compact_fps_val(fps);
+        let col  = compact_fps_color(app, fps);
+        let sub  = compact_fps_sub(fps);
+        let hist = app.hist_fps.as_vec();
+        compact_row(ui, &app.theme, "FPS", app.theme.accent_net, &val, col, fs,
+            None, &sub, &hist, 120.0, None);
+    });
+    draw_card_anim(ui, app, 1, |ui, app| {
+        let val  = compact_gpu_val(snap);
+        let col  = compact_gpu_color(app, snap);
+        let sub  = compact_gpu_sub(snap);
+        let bar  = snap.gpu.utilization_percent.filter(|_| snap.gpu.available);
+        let hist = app.hist_gpu.as_vec();
+        let peak = if snap.gpu.available { Some(app.peak_gpu) } else { None };
+        compact_row(ui, &app.theme, "GPU", app.theme.accent_gpu, &val, col, fs,
+            bar, &sub, &hist, 100.0, peak);
+    });
+    draw_card_anim(ui, app, 2, |ui, app| {
+        let val     = compact_net_val(snap);
+        let sub     = compact_net_sub(snap);
+        let cap_bps = vis.net_cap_mbps * 125_000.0_f32;
+        let rx_pct  = (snap.network.total_rx_bps as f32 / cap_bps * 100.0).clamp(0.0, 100.0);
+        let col = if rx_pct >= 90.0      { app.theme.crit }
+                  else if rx_pct >= 70.0 { app.theme.warn }
+                  else                   { app.theme.accent_net };
+        let hist     = app.hist_rx.as_vec();
+        let hist_max = hist.iter().cloned().fold(cap_bps as f64, f64::max);
+        let peak_pct = (app.peak_net_rx / cap_bps * 100.0).clamp(0.0, 100.0);
+        compact_row(ui, &app.theme, "NET", app.theme.accent_net, &val, col, fs,
+            Some(rx_pct), &sub, &hist, hist_max as f32, Some(peak_pct));
+    });
+    draw_card_anim(ui, app, 3, |ui, app| {
+        let val  = compact_disk_val(snap);
+        let col  = compact_disk_color(app, snap);
+        let sub  = compact_disk_sub(snap);
+        let bar  = snap.disks.first().map(|d| d.usage_percent());
+        let hist = app.hist_disk.as_vec();
+        compact_row(ui, &app.theme, "DISK", app.theme.accent_disk, &val, col, fs,
+            bar, &sub, &hist, 100.0, Some(app.peak_disk));
+    });
+    draw_card_anim(ui, app, 4, |ui, app| {
+        let val  = compact_temp_val(snap);
+        let col  = compact_temp_color(app, snap);
+        let sub  = compact_temp_sub(snap);
+        let bar  = snap.temps.cpu_celsius.map(|t| t.clamp(0.0, 100.0));
+        let hist = app.hist_temp_cpu.as_vec();
+        let peak = snap.temps.cpu_celsius.map(|_| app.peak_temp);
+        compact_row(ui, &app.theme, "TEMP", app.theme.accent_temp, &val, col, fs,
+            bar, &sub, &hist, 100.0, peak);
+    });
 }
 
 /// Render an optional card with a height-collapse animation.
 ///
-/// `slot` indexes [fps=0, gpu=1, net=2, disk=3, temp=4].  When fully shown the
-/// card renders normally and its height is measured for future collapse frames.
-/// When partially collapsed the card's allocated space shrinks while content is
-/// clipped, so surrounding cards slide smoothly to fill the vacated space.
+/// `slot` indexes [fps=0, gpu=1, net=2, disk=3, temp=4].
 fn draw_card_anim<F>(ui: &mut Ui, app: &mut MonitorApp, slot: usize, draw_fn: F)
 where
     F: FnOnce(&mut Ui, &mut MonitorApp),
 {
-    let scale     = app.card_anim.scale[slot];
-    let stored_h  = app.card_anim.height[slot];
+    let scale    = app.card_anim.scale[slot];
+    let stored_h = app.card_anim.height[slot];
 
     if scale <= 0.001 { return; }
 
     if scale >= 0.999 {
-        // Fully visible — render normally and refresh the stored height.
         let top = ui.cursor().top();
         draw_fn(ui, app);
         let spacing = ui.spacing().item_spacing.y;
         let h = (ui.cursor().top() - top - spacing).max(0.0);
         if h > 4.0 { app.card_anim.height[slot] = h; }
     } else {
-        // Animating — allocate a collapsing slice of vertical space and clip the
-        // card content into it so surrounding cards slide smoothly.
-        let alloc_h  = (stored_h * scale).max(1.0);
-        let avail_w  = ui.available_width();
+        let alloc_h = (stored_h * scale).max(1.0);
+        let avail_w = ui.available_width();
         let (clip_rect, _) = ui.allocate_exact_size(Vec2::new(avail_w, alloc_h), Sense::hover());
         let full_rect = Rect::from_min_size(clip_rect.min, Vec2::new(avail_w, stored_h));
         #[allow(deprecated)]
@@ -117,186 +123,221 @@ where
     }
 }
 
-// ── Shared helpers ────────────────────────────────────────────────────────────
+// ── Compact row ───────────────────────────────────────────────────────────────
 
-// Header without a right-aligned value — used by split-layout cards where
-// the value is painted by `draw_right_panel` instead.
-fn card_hdr_no_val(ui: &mut Ui, label: &str, subtitle: &str, accent: Color32, text_subtle: Color32) {
-    ui.horizontal(|ui| {
-        let (r, _) = ui.allocate_exact_size(Vec2::new(3.0, 14.0), Sense::hover());
-        ui.painter().rect_filled(r, Rounding::same(1.5), accent);
-        ui.add_space(5.0);
-        ui.label(egui::RichText::new(label).color(accent).size(11.5).strong());
-        if !subtitle.is_empty() {
-            ui.label(egui::RichText::new(truncate(subtitle, 18)).color(text_subtle).size(9.5));
-        }
-    });
-}
-
-// Paint tinted right panel + health stripe + big glowing centred value.
-// Call AFTER rendering left content so `content_rect` (ui.min_rect()) is accurate.
-fn draw_right_panel(
+fn compact_row(
     ui: &mut Ui,
-    content_rect: egui::Rect,
-    full_right: f32,
-    right_w: f32,
-    big_text: &str,
-    unit: &str,       // optional unit below (e.g. "fps"), "" to skip
-    text_color: Color32,
-    dim: Color32,
-    _card_border: Color32,
+    theme: &crate::theme::Theme,
+    label: &str,
+    accent: Color32,
+    val: &str,
+    val_color: Color32,
+    font_size: f32,
+    fill_pct: Option<f32>,   // 0–100 fill bar; None = no bar
+    sub_label: &str,         // secondary info; "" = none
+    spark_data: &[f64],      // history for mini sparkline; &[] = skip
+    spark_max: f32,          // normalization ceiling for sparkline
+    peak_pct: Option<f32>,   // session peak 0-100; tick on fill bar
 ) {
-    let div_x    = full_right - right_w;
-    let mid_y    = content_rect.center().y;
-    let right_cx = full_right - right_w * 0.5;
-    let [r, g, b, _] = text_color.to_array();
+    const BAR_H:  f32 = 3.0;
+    const BAR_GAP: f32 = 4.0;
+    const SUB_C: Color32 = Color32::from_rgb(0x78, 0x78, 0x90);
 
-    // Subtle dark tint behind the right panel
-    ui.painter().rect_filled(
-        egui::Rect::from_min_max(
-            egui::pos2(div_x, content_rect.min.y),
-            egui::pos2(full_right, content_rect.max.y),
-        ),
-        Rounding::ZERO,
-        Color32::from_rgba_unmultiplied(0, 0, 0, 38),
-    );
+    let top_y = ui.cursor().top();
 
-    // Health-colored left edge stripe (replaces plain divider)
-    ui.painter().rect_filled(
-        egui::Rect::from_min_max(
-            egui::pos2(div_x, content_rect.min.y),
-            egui::pos2(div_x + 2.0, content_rect.max.y),
-        ),
-        Rounding::ZERO,
-        Color32::from_rgba_unmultiplied(r, g, b, 180),
-    );
-
-    // Neon glow + solid big value — same style as compact mode
-    let (num_y, anchor) = if unit.is_empty() {
-        (mid_y, Align2::CENTER_CENTER)
-    } else {
-        (mid_y - 4.0, Align2::CENTER_BOTTOM)
-    };
-    let pos = egui::pos2(right_cx, num_y);
-    let fid = FontId::new(28.0, FontFamily::Monospace);
-
-    // Soft bloom — 4 cardinals at 1 px
-    let halo = Color32::from_rgba_unmultiplied(r, g, b, 18);
-    for (dx, dy) in [(-1.0f32, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)] {
-        ui.painter().text(egui::pos2(pos.x + dx, pos.y + dy), anchor, big_text, fid.clone(), halo);
-    }
-    // Solid core
-    ui.painter().text(pos, anchor, big_text, fid, text_color);
-
-    if !unit.is_empty() {
-        ui.painter().text(
-            egui::pos2(right_cx, mid_y + 2.0),
-            Align2::CENTER_TOP,
-            unit,
-            FontId::new(10.0, FontFamily::Proportional),
-            dim,
-        );
-    }
-}
-
-fn stat_line(ui: &mut Ui, left: &str, right: &str, dim: Color32, accent: Color32) {
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(left).color(dim).size(10.0));
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(egui::RichText::new(right).color(accent).monospace().size(10.0));
-        });
-    });
-}
-
-// Draws a subtle horizontal zone separator — 0.5 px line in the item-spacing gap.
-// Spans ui.max_rect() so it naturally respects set_max_width in split-layout cards.
-fn zone_sep(ui: &mut Ui, accent: Color32) {
-    let y = ui.cursor().top() - ui.spacing().item_spacing.y * 0.5;
-    let [r, g, b, _] = accent.to_array();
-    ui.painter().line_segment(
-        [
-            egui::pos2(ui.max_rect().left() + 3.0, y),
-            egui::pos2(ui.max_rect().right() - 3.0, y),
-        ],
-        egui::Stroke::new(0.5, Color32::from_rgba_unmultiplied(r, g, b, 28)),
-    );
-}
-
-// ── Compact mode ─────────────────────────────────────────────────────────────
-
-fn compact_row(ui: &mut Ui, theme: &crate::theme::Theme, label: &str, accent: Color32, val: &str, val_color: Color32, font_size: f32) {
     glow_card(ui, theme, accent, |ui| {
-        let row_h = (font_size + 12.0).max(24.0);
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), row_h), Sense::hover());
-        let p  = ui.painter();
-        let cy = rect.center().y;
+        let has_sub = !sub_label.is_empty();
+        let has_bar = fill_pct.is_some();
 
-        // Accent bar
-        let bar_h = (font_size * 0.65).clamp(12.0, 26.0);
+        let bar_reserve = if has_bar { BAR_H + BAR_GAP } else { 0.0 };
+        let min_h = if has_sub { 38.0 } else { 28.0 };
+        let row_h = (font_size + 8.0 + bar_reserve).max(min_h);
+
+        let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), row_h), Sense::hover());
+        let p = ui.painter();
+
+        let content_bot = rect.max.y - bar_reserve;
+        let cy = (rect.min.y + content_bot) * 0.5;
+
+        // Left accent spine
+        let spine_h = (font_size * 0.65).clamp(12.0, 28.0);
         p.rect_filled(
-            egui::Rect::from_center_size(egui::pos2(rect.min.x + 1.5, cy), Vec2::new(3.0, bar_h)),
+            egui::Rect::from_center_size(egui::pos2(rect.min.x + 1.5, cy), Vec2::new(3.0, spine_h)),
             Rounding::same(1.5),
             accent,
         );
 
-        // Label (tag on the left)
-        p.text(
-            egui::pos2(rect.min.x + 11.0, cy),
-            Align2::LEFT_CENTER,
-            label,
-            FontId::new(10.5, FontFamily::Monospace),
-            accent,
-        );
+        // Mini sparkline — trend ghost in the right zone, drawn before text so it sits behind
+        if spark_data.len() >= 2 && spark_max > 0.0 {
+            let spark_x0 = rect.min.x + rect.width() * 0.25;
+            let spark_rect = egui::Rect::from_min_max(
+                egui::pos2(spark_x0, rect.min.y + 2.0),
+                egui::pos2(rect.max.x - 4.0, content_bot - 2.0),
+            );
+            if spark_rect.width() > 10.0 && spark_rect.height() > 4.0 {
+                mini_sparkline(p, spark_rect, spark_data, spark_max, val_color);
+            }
+        }
 
-        // Value — right-aligned with thick stroke + glow
+        // Label + optional sub-label stacked on the left
+        let tx = rect.min.x + 11.0;
+        if has_sub {
+            p.text(egui::pos2(tx, cy - 7.0), Align2::LEFT_CENTER, label,
+                FontId::new(10.5, FontFamily::Monospace), accent);
+            p.text(egui::pos2(tx, cy + 7.0), Align2::LEFT_CENTER, sub_label,
+                FontId::new(9.5, FontFamily::Proportional), SUB_C);
+        } else {
+            p.text(egui::pos2(tx, cy), Align2::LEFT_CENTER, label,
+                FontId::new(10.5, FontFamily::Monospace), accent);
+        }
+
+        // Value — right-aligned, neon glow
         let vp  = egui::pos2(rect.max.x - 4.0, cy);
         let fid = FontId::new(font_size, FontFamily::Monospace);
         let [r, g, b, _] = val_color.to_array();
-
-        // Soft glow bloom — 4 cardinals at 1 px, just enough for the neon look
         let halo = Color32::from_rgba_unmultiplied(r, g, b, 18);
         for (dx, dy) in [(-1.0f32, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)] {
-            p.text(egui::pos2(vp.x+dx, vp.y+dy), Align2::RIGHT_CENTER, val, fid.clone(), halo);
+            p.text(egui::pos2(vp.x + dx, vp.y + dy), Align2::RIGHT_CENTER, val, fid.clone(), halo);
         }
-
-        // Solid core
         p.text(vp, Align2::RIGHT_CENTER, val, fid, val_color);
+
+        // Fill bar
+        if let Some(pct) = fill_pct {
+            let bar_top = rect.max.y - BAR_H;
+            let bar_bot = rect.max.y;
+            let full = egui::Rect::from_min_max(
+                egui::pos2(rect.min.x, bar_top),
+                egui::pos2(rect.max.x, bar_bot),
+            );
+            p.rect_filled(full, Rounding::same(1.5),
+                Color32::from_rgba_unmultiplied(r, g, b, 22));
+            let fill_w = rect.width() * (pct / 100.0).clamp(0.0, 1.0);
+            if fill_w > 0.5 {
+                p.rect_filled(
+                    egui::Rect::from_min_max(
+                        egui::pos2(rect.min.x, bar_top),
+                        egui::pos2(rect.min.x + fill_w, bar_bot),
+                    ),
+                    Rounding::same(1.5),
+                    Color32::from_rgba_unmultiplied(r, g, b, 160),
+                );
+            }
+            // Session peak tick
+            if let Some(peak) = peak_pct {
+                let peak_x = rect.min.x + rect.width() * (peak / 100.0).clamp(0.0, 1.0);
+                if peak_x > rect.min.x + 2.0 {
+                    p.rect_filled(
+                        egui::Rect::from_min_max(
+                            egui::pos2(peak_x - 1.0, bar_top - 1.0),
+                            egui::pos2(peak_x + 1.0, bar_bot + 1.0),
+                        ),
+                        Rounding::ZERO,
+                        Color32::from_rgba_unmultiplied(255, 255, 255, 200),
+                    );
+                }
+            }
+        }
     });
+
+    // Threshold pulse — animated glow rings in warn/crit state
+    let is_warn = val_color == theme.warn;
+    let is_crit = val_color == theme.crit;
+    if is_warn || is_crit {
+        let bot_y = (ui.cursor().top() - ui.spacing().item_spacing.y).max(top_y + 1.0);
+        let card_rect = egui::Rect::from_min_max(
+            egui::pos2(ui.max_rect().left(), top_y),
+            egui::pos2(ui.max_rect().right(), bot_y),
+        );
+        let t = ui.ctx().input(|i| i.time) as f32;
+        let freq = if is_crit { 1.8_f32 } else { 1.0 };
+        let wave = (t * freq * std::f32::consts::TAU).sin() * 0.5 + 0.5;
+        let [r, g, b, _] = val_color.to_array();
+        let max_a = if is_crit { 80u8 } else { 50u8 };
+        let alpha = (wave * max_a as f32) as u8 + if is_crit { 15u8 } else { 8u8 };
+
+        let painter = ui.painter();
+        for i in 1u8..=3 {
+            let a = (alpha as u32 * 3 / (i as u32 * i as u32 + 2)).min(255) as u8;
+            if a > 1 {
+                let spread = i as f32 * 1.8;
+                painter.rect_stroke(
+                    card_rect.expand(spread),
+                    Rounding::same(7.0 + spread),
+                    egui::Stroke::new(1.2, Color32::from_rgba_unmultiplied(r, g, b, a)),
+                );
+            }
+        }
+        ui.ctx().request_repaint();
+    }
 }
 
-fn compact_cpu_val(_app: &MonitorApp, snap: &SystemSnapshot) -> String {
+// ── Value formatters ──────────────────────────────────────────────────────────
+
+fn compact_cpu_val(snap: &SystemSnapshot) -> String {
     format!("{:.1}%", snap.cpu.total_usage)
 }
 fn compact_cpu_color(app: &MonitorApp, snap: &SystemSnapshot) -> Color32 {
-    app.theme.health_color(snap.cpu.total_usage, 60.0, 85.0)
+    let p = snap.cpu.total_usage;
+    if p >= 85.0 { app.theme.crit } else if p >= 60.0 { app.theme.warn } else { app.theme.accent_cpu }
+}
+fn compact_cpu_sub(snap: &SystemSnapshot) -> String {
+    let ghz = snap.cpu.frequency_mhz as f32 / 1000.0;
+    format!("{ghz:.1} GHz · {}c", snap.cpu.logical_cores)
 }
 
-fn compact_mem_val(_: &MonitorApp, snap: &SystemSnapshot) -> String {
+fn compact_mem_val(snap: &SystemSnapshot) -> String {
     format!("{:.1}%", snap.memory.usage_percent())
 }
 fn compact_mem_color(app: &MonitorApp, snap: &SystemSnapshot) -> Color32 {
-    app.theme.health_color(snap.memory.usage_percent(), 70.0, 90.0)
+    let p = snap.memory.usage_percent();
+    if p >= 90.0 { app.theme.crit } else if p >= 70.0 { app.theme.warn } else { app.theme.accent_mem }
+}
+fn compact_mem_sub(snap: &SystemSnapshot) -> String {
+    format!("{} / {}", fmt_bytes(snap.memory.used_bytes), fmt_bytes(snap.memory.total_bytes))
 }
 
 fn compact_fps_val(fps: &FpsSnapshot) -> String {
     if fps.active { format!("{:.0} fps", fps.fps) } else { "— fps".into() }
 }
 fn compact_fps_color(app: &MonitorApp, fps: &FpsSnapshot) -> Color32 {
-    if !fps.active         { app.theme.text_dim }
-    else if fps.fps >= 60.0 { app.theme.ok }
+    if !fps.active          { app.theme.text_subtle }
+    else if fps.fps >= 60.0 { app.theme.accent_net }
     else if fps.fps >= 30.0 { app.theme.warn }
     else                    { app.theme.crit }
 }
+fn compact_fps_sub(fps: &FpsSnapshot) -> String {
+    if fps.active && !fps.window_title.is_empty() {
+        let t = &fps.window_title;
+        if t.chars().count() > 18 { format!("{}…", t.chars().take(17).collect::<String>()) } else { t.clone() }
+    } else if !fps.active {
+        "no game".into()
+    } else {
+        String::new()
+    }
+}
 
-fn compact_gpu_val(_: &MonitorApp, snap: &SystemSnapshot) -> String {
+fn compact_gpu_val(snap: &SystemSnapshot) -> String {
     if snap.gpu.available {
         snap.gpu.utilization_percent.map(|p| format!("{p:.0}%")).unwrap_or_else(|| "—".into())
     } else { "—".into() }
 }
 fn compact_gpu_color(app: &MonitorApp, snap: &SystemSnapshot) -> Color32 {
     match snap.gpu.utilization_percent.filter(|_| snap.gpu.available) {
-        Some(p) => app.theme.health_color(p, 70.0, 90.0),
-        None    => app.theme.text_dim,
+        Some(p) if p >= 90.0 => app.theme.crit,
+        Some(p) if p >= 70.0 => app.theme.warn,
+        Some(_)              => app.theme.accent_gpu,
+        None                 => app.theme.text_subtle,
+    }
+}
+fn compact_gpu_sub(snap: &SystemSnapshot) -> String {
+    if !snap.gpu.available { return "unavailable".into(); }
+    if snap.gpu.vram_total_bytes > 0 {
+        format!("{} / {}", fmt_bytes(snap.gpu.vram_used_bytes), fmt_bytes(snap.gpu.vram_total_bytes))
+    } else if !snap.gpu.name.is_empty() {
+        let n = &snap.gpu.name;
+        if n.chars().count() > 18 { format!("{}…", n.chars().take(17).collect::<String>()) } else { n.clone() }
+    } else {
+        String::new()
     }
 }
 
@@ -304,14 +345,27 @@ fn compact_net_val(snap: &SystemSnapshot) -> String {
     let (num, unit) = fmt_bps_parts(snap.network.total_rx_bps);
     format!("↓{num} {unit}")
 }
+fn compact_net_sub(snap: &SystemSnapshot) -> String {
+    let (num, unit) = fmt_bps_parts(snap.network.total_tx_bps);
+    format!("↑{num} {unit}")
+}
 
-fn compact_disk_val(_: &MonitorApp, snap: &SystemSnapshot) -> String {
+fn compact_disk_val(snap: &SystemSnapshot) -> String {
     snap.disks.first().map(|d| format!("{:.0}%", d.usage_percent())).unwrap_or_else(|| "—".into())
 }
 fn compact_disk_color(app: &MonitorApp, snap: &SystemSnapshot) -> Color32 {
     snap.disks.first()
-        .map(|d| app.theme.health_color(d.usage_percent(), 75.0, 90.0))
-        .unwrap_or(app.theme.text_dim)
+        .map(|d| {
+            let p = d.usage_percent();
+            if p >= 90.0 { app.theme.crit } else if p >= 75.0 { app.theme.warn } else { app.theme.accent_disk }
+        })
+        .unwrap_or(app.theme.text_subtle)
+}
+fn compact_disk_sub(snap: &SystemSnapshot) -> String {
+    snap.disks.first().map(|d| {
+        let free = d.total_bytes.saturating_sub(d.used_bytes);
+        format!("{} free", fmt_bytes(free))
+    }).unwrap_or_default()
 }
 
 fn compact_temp_val(snap: &SystemSnapshot) -> String {
@@ -319,277 +373,14 @@ fn compact_temp_val(snap: &SystemSnapshot) -> String {
 }
 fn compact_temp_color(app: &MonitorApp, snap: &SystemSnapshot) -> Color32 {
     snap.temps.cpu_celsius
-        .map(|t| app.theme.health_color(t, 70.0, 85.0))
-        .unwrap_or(app.theme.text_dim)
+        .map(|t| if t >= 85.0 { app.theme.crit } else if t >= 70.0 { app.theme.warn } else { app.theme.accent_temp })
+        .unwrap_or(app.theme.text_subtle)
 }
-
-// ── CPU ───────────────────────────────────────────────────────────────────────
-
-fn cpu_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
-    let accent    = app.theme.accent_cpu;
-    let pct       = snap.cpu.total_usage;
-    let val_color = app.theme.health_color(pct, 60.0, 85.0);
-    let subtle    = app.theme.text_subtle;
-    let dim       = app.theme.text_dim;
-    let border    = app.theme.card_border;
-
-    glow_card(ui, &app.theme, accent, |ui| {
-        ui.spacing_mut().item_spacing.y = 3.0;
-        const RIGHT_W: f32 = 65.0;
-        let full_right = ui.max_rect().right();
-        ui.set_max_width((ui.available_width() - RIGHT_W - 1.0).max(60.0));
-
-        let left_w = ui.available_width();
-        card_hdr_no_val(ui, "CPU", &snap.cpu.brand, accent, subtle);
-        zone_sep(ui, accent);
-        spectrum_bars(ui, &app.disp_cpu, 100.0, accent, Some(CPU_END), SPEC_H, vu_color);
-        zone_sep(ui, accent);
-        let cpu_left = if left_w < NARROW {
-            format!("{}c · {}M", snap.cpu.logical_cores, snap.cpu.frequency_mhz)
-        } else {
-            format!("{} cores  ·  {} MHz", snap.cpu.logical_cores, snap.cpu.frequency_mhz)
-        };
-        stat_line(ui, &cpu_left, &format!("{pct:.1}%"), dim, accent);
-        draw_right_panel(ui, ui.min_rect(), full_right, RIGHT_W, &format!("{pct:.0}%"), "", val_color, dim, border);
-    });
-}
-
-// ── Memory ────────────────────────────────────────────────────────────────────
-
-fn memory_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
-    let accent    = app.theme.accent_mem;
-    let pct       = snap.memory.usage_percent();
-    let val_color = app.theme.health_color(pct, 70.0, 90.0);
-    let subtle    = app.theme.text_subtle;
-    let dim       = app.theme.text_dim;
-    let border    = app.theme.card_border;
-
-    glow_card(ui, &app.theme, accent, |ui| {
-        ui.spacing_mut().item_spacing.y = 3.0;
-        const RIGHT_W: f32 = 65.0;
-        let full_right = ui.max_rect().right();
-        ui.set_max_width((ui.available_width() - RIGHT_W - 1.0).max(60.0));
-
-        let left_w = ui.available_width();
-        card_hdr_no_val(ui, "MEM", &fmt_bytes(snap.memory.total_bytes), accent, subtle);
-        zone_sep(ui, accent);
-        spectrum_bars(ui, &app.disp_mem, 100.0, accent, Some(MEM_END), SPEC_H, vu_color);
-        zone_sep(ui, accent);
-        let (mem_left, mem_right) = if left_w < NARROW {
-            (fmt_bytes(snap.memory.used_bytes), fmt_bytes(snap.memory.available_bytes))
-        } else {
-            (format!("{} used", fmt_bytes(snap.memory.used_bytes)),
-             format!("{} free", fmt_bytes(snap.memory.available_bytes)))
-        };
-        stat_line(ui, &mem_left, &mem_right, dim, accent);
-        draw_right_panel(ui, ui.min_rect(), full_right, RIGHT_W, &format!("{pct:.0}%"), "", val_color, dim, border);
-    });
-}
-
-// ── FPS ───────────────────────────────────────────────────────────────────────
-
-fn fps_card(app: &mut MonitorApp, ui: &mut Ui, fps: &FpsSnapshot) {
-    let accent    = app.theme.accent_net;
-    let subtle    = app.theme.text_subtle;
-    let dim       = app.theme.text_dim;
-    let border    = app.theme.card_border;
-
-    let val_color = if !fps.active         { dim }
-                   else if fps.fps >= 60.0 { app.theme.ok }
-                   else if fps.fps >= 30.0 { app.theme.warn }
-                   else                    { app.theme.crit };
-    let big_num = if fps.active { format!("{:.0}", fps.fps) } else { "—".into() };
-    let unit    = if fps.active { "fps" } else { "" };
-    let ft      = if fps.active && fps.fps > 0.0 { format!("{:.1} ms", 1000.0 / fps.fps) } else { String::new() };
-
-    glow_card(ui, &app.theme, accent, |ui| {
-        ui.spacing_mut().item_spacing.y = 3.0;
-        const RIGHT_W: f32 = 65.0;
-        let full_right = ui.max_rect().right();
-        ui.set_max_width((ui.available_width() - RIGHT_W - 1.0).max(60.0));
-        let left_w = ui.available_width();
-
-        let subtitle  = if fps.active { truncate(&fps.window_title, 18) } else { "no game".into() };
-        let sub_color = if fps.active { subtle } else { dim };
-        card_hdr_no_val(ui, "FPS", &subtitle, accent, sub_color);
-        zone_sep(ui, accent);
-        spectrum_bars(ui, &app.disp_fps, 120.0, accent, None, SPEC_H, fps_color);
-        zone_sep(ui, accent);
-        let (stat_left, stat_right, stat_color) = if fps.active {
-            let chars = if left_w < NARROW { 10 } else { 26 };
-            (truncate(&fps.window_title, chars), ft, accent)
-        } else {
-            ("waiting for game".into(), String::new(), dim)
-        };
-        stat_line(ui, &stat_left, &stat_right, dim, stat_color);
-
-        draw_right_panel(ui, ui.min_rect(), full_right, RIGHT_W, &big_num, unit, val_color, dim, border);
-    });
-}
-
-// ── GPU ───────────────────────────────────────────────────────────────────────
-
-fn gpu_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
-    let accent    = app.theme.accent_gpu;
-    let subtle    = app.theme.text_subtle;
-    let dim       = app.theme.text_dim;
-    let border    = app.theme.card_border;
-
-    let pct       = snap.gpu.utilization_percent.unwrap_or(0.0);
-    let big_val   = if !snap.gpu.available {
-        "—".into()
-    } else {
-        snap.gpu.utilization_percent
-            .map(|p| format!("{p:.0}%"))
-            .unwrap_or_else(|| "—".into())
-    };
-    let big_color = if snap.gpu.available && snap.gpu.utilization_percent.is_some() {
-        app.theme.health_color(pct, 70.0, 90.0)
-    } else { dim };
-
-    glow_card(ui, &app.theme, accent, |ui| {
-        ui.spacing_mut().item_spacing.y = 3.0;
-        const RIGHT_W: f32 = 65.0;
-        let full_right = ui.max_rect().right();
-        ui.set_max_width((ui.available_width() - RIGHT_W - 1.0).max(60.0));
-
-        let subtitle  = if snap.gpu.available { snap.gpu.name.as_str() } else { "unavailable" };
-        let sub_color = if snap.gpu.available { subtle } else { dim };
-        card_hdr_no_val(ui, "GPU", subtitle, accent, sub_color);
-        zone_sep(ui, accent);
-        spectrum_bars(ui, &app.disp_gpu, 100.0, accent, None, SPEC_H, vu_color);
-        zone_sep(ui, accent);
-        if snap.gpu.available {
-            let vram_str = if snap.gpu.vram_total_bytes > 0 {
-                format!("{} / {}", fmt_bytes(snap.gpu.vram_used_bytes), fmt_bytes(snap.gpu.vram_total_bytes))
-            } else { String::new() };
-            let temp_str = snap.gpu.temperature_celsius.map(|t| format!("{t:.0}°C")).unwrap_or_default();
-            let right = [&vram_str, &temp_str].iter()
-                .filter(|s| !s.is_empty())
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>()
-                .join("  ·  ");
-            stat_line(ui, "VRAM", &right, dim, accent);
-        } else {
-            stat_line(ui, "no GPU data", "", dim, dim);
-        }
-
-        draw_right_panel(ui, ui.min_rect(), full_right, RIGHT_W, &big_val, "", big_color, dim, border);
-    });
-}
-
-// ── Network ───────────────────────────────────────────────────────────────────
-
-fn network_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
-    let accent = app.theme.accent_net;
-    let subtle = app.theme.text_subtle;
-    let dim    = app.theme.text_dim;
-    let border = app.theme.card_border;
-
-    let rx_max = app.hist_rx.as_vec().iter().cloned().fold(8_000.0f64, f64::max) as f32;
-    let (rx_num, rx_unit) = fmt_bps_parts(snap.network.total_rx_bps);
-
-    glow_card(ui, &app.theme, accent, |ui| {
-        ui.spacing_mut().item_spacing.y = 3.0;
-        const RIGHT_W: f32 = 65.0;
-        let full_right = ui.max_rect().right();
-        ui.set_max_width((ui.available_width() - RIGHT_W - 1.0).max(60.0));
-
-        card_hdr_no_val(ui, "NET", "↓ download", accent, subtle);
-        zone_sep(ui, accent);
-        spectrum_bars(ui, &app.disp_rx, rx_max, accent, None, SPEC_H, vu_color);
-        zone_sep(ui, accent);
-        stat_line(ui, "↑ upload", &fmt_bps(snap.network.total_tx_bps), dim, accent);
-
-        draw_right_panel(ui, ui.min_rect(), full_right, RIGHT_W, &rx_num, rx_unit, accent, dim, border);
-    });
-}
-
-// ── Disk ──────────────────────────────────────────────────────────────────────
-
-fn disk_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
-    let accent = app.theme.accent_disk;
-    let subtle = app.theme.text_subtle;
-    let dim    = app.theme.text_dim;
-    let border = app.theme.card_border;
-
-    let (val_color, big_val, subtitle, stat_left, stat_right) =
-        if let Some(disk) = snap.disks.first() {
-            let pct       = disk.usage_percent();
-            let val_color = app.theme.health_color(pct, 75.0, 90.0);
-            let free      = disk.total_bytes.saturating_sub(disk.used_bytes);
-            let stat_right = if snap.disks.len() > 1 {
-                format!("+{} more", snap.disks.len() - 1)
-            } else {
-                format!("{} free", fmt_bytes(free))
-            };
-            (val_color, format!("{pct:.0}%"), disk.mount.clone(),
-             format!("{} used", fmt_bytes(disk.used_bytes)), stat_right)
-        } else {
-            (dim, "—".into(), String::new(), "no disks found".into(), String::new())
-        };
-
-    glow_card(ui, &app.theme, accent, |ui| {
-        ui.spacing_mut().item_spacing.y = 3.0;
-        const RIGHT_W: f32 = 65.0;
-        let full_right = ui.max_rect().right();
-        ui.set_max_width((ui.available_width() - RIGHT_W - 1.0).max(60.0));
-
-        card_hdr_no_val(ui, "DISK", &subtitle, accent, subtle);
-        zone_sep(ui, accent);
-        spectrum_bars(ui, &app.disp_disk, 100.0, accent, None, SPEC_H, vu_color);
-        zone_sep(ui, accent);
-        stat_line(ui, &stat_left, &stat_right, dim, accent);
-
-        draw_right_panel(ui, ui.min_rect(), full_right, RIGHT_W, &big_val, "", val_color, dim, border);
-    });
-}
-
-// ── Temperatures ──────────────────────────────────────────────────────────────
-
-fn temps_card(app: &mut MonitorApp, ui: &mut Ui, snap: &SystemSnapshot) {
-    let accent = app.theme.accent_temp;
-    let subtle = app.theme.text_subtle;
-    let dim    = app.theme.text_dim;
-    let border = app.theme.card_border;
-
-    let has_data  = snap.temps.cpu_celsius.is_some() || snap.temps.gpu_celsius.is_some();
-    let cpu_big   = snap.temps.cpu_celsius.map(|t| format!("{t:.0}")).unwrap_or_else(|| "—".into());
-    let cpu_unit  = if snap.temps.cpu_celsius.is_some() { "°C" } else { "" };
-    let cpu_color = snap.temps.cpu_celsius
-        .map(|t| app.theme.health_color(t, 70.0, 85.0))
-        .unwrap_or(dim);
-
-    glow_card(ui, &app.theme, accent, |ui| {
-        ui.spacing_mut().item_spacing.y = 3.0;
-        const RIGHT_W: f32 = 65.0;
-        let full_right = ui.max_rect().right();
-        ui.set_max_width((ui.available_width() - RIGHT_W - 1.0).max(60.0));
-
-        let subtitle  = if has_data { "CPU & GPU" } else { "no sensor data" };
-        let sub_color = if has_data { subtle } else { dim };
-        card_hdr_no_val(ui, "TEMP", subtitle, accent, sub_color);
-        zone_sep(ui, accent);
-        spectrum_bars(ui, &app.disp_temp_cpu, 100.0, accent, None, SPEC_H, vu_color);
-        zone_sep(ui, accent);
-
-        let gpu_str   = snap.temps.gpu_celsius.map(|t| format!("{t:.0}°C")).unwrap_or_else(|| "—".into());
-        let gpu_color = snap.temps.gpu_celsius
-            .map(|t| app.theme.health_color(t, 75.0, 90.0))
-            .unwrap_or(dim);
-        stat_line(ui, "GPU", &gpu_str, dim, gpu_color);
-
-        draw_right_panel(ui, ui.min_rect(), full_right, RIGHT_W, &cpu_big, cpu_unit, cpu_color, dim, border);
-    });
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_owned()
-    } else {
-        format!("{}…", &s[..max.saturating_sub(1)])
+fn compact_temp_sub(snap: &SystemSnapshot) -> String {
+    match snap.temps.gpu_celsius {
+        Some(t) => format!("GPU  {t:.0}°C"),
+        None if snap.temps.cpu_celsius.is_some() => "GPU  —".into(),
+        None => "no sensor".into(),
     }
 }
 

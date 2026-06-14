@@ -29,8 +29,6 @@ pub struct CardVisibility {
     pub show_temp: bool,
     #[serde(default = "default_opacity")]
     pub opacity: f32,
-    #[serde(default)]
-    pub compact_mode: bool,
     #[serde(default = "default_compact_font_size")]
     pub compact_font_size: f32,
     #[serde(skip)]
@@ -40,10 +38,14 @@ pub struct CardVisibility {
     /// Index into the DXGI hardware adapter list for the GPU card. Persisted.
     #[serde(default)]
     pub selected_gpu_index: usize,
+    /// Bandwidth cap in Megabits/sec — sets 100% on the NET fill bar and health colours.
+    #[serde(default = "default_net_cap_mbps")]
+    pub net_cap_mbps: f32,
 }
 
 fn default_opacity() -> f32 { 1.0 }
 fn default_compact_font_size() -> f32 { 22.0 }
+fn default_net_cap_mbps() -> f32 { 1000.0 }
 
 /// Per-card collapse animation state for the 5 optional cards [fps, gpu, net, disk, temp].
 pub struct CardAnim {
@@ -75,11 +77,11 @@ impl Default for CardVisibility {
             show_fps: true, show_gpu: true, show_net: true,
             show_disk: true, show_temp: true,
             opacity: 1.0,
-            compact_mode: false,
             compact_font_size: 22.0,
             always_on_top: false,
             passthrough_mode: false,
             selected_gpu_index: 0,
+            net_cap_mbps: 1000.0,
         }
     }
 }
@@ -152,7 +154,6 @@ pub struct MonitorApp {
     applied_opacity: f32,
     opacity_startup_frames: u8,
     prev_always_on_top: bool,
-    prev_compact_mode: Option<bool>,
     prev_passthrough_mode: bool,
     pub passthrough_active: bool,
     pub prev_show_about: bool,
@@ -160,19 +161,25 @@ pub struct MonitorApp {
 
     /// Per-card collapse/expand animation (height squish).
     pub card_anim: CardAnim,
-    /// 0.0 = fully in normal mode, 1.0 = fully in compact mode.
-    /// Drives the cross-dissolve when the user switches between modes.
-    pub compact_anim: f32,
-    /// Tracks which layout was rendered last frame so we can fire the window
-    /// resize exactly when compact_anim crosses 0.5 (opacity == 0).
-    prev_render_compact: Option<bool>,
-    /// Window height saved just before entering compact mode, restored on exit.
-    saved_normal_height: Option<f32>,
     /// Tracks which optional cards were shown last frame so we can snap the
     /// window height whenever a card is added or removed.
     prev_shown_cards: [bool; 5],
     /// Tracks the compact font size so a window resize fires when the slider moves.
     prev_compact_font_size: f32,
+    /// True on the very first frame — fires the initial window size snap.
+    startup_resize_pending: bool,
+
+    /// Session-high watermarks — reset on app restart, used for peak ticks in compact mode.
+    pub peak_cpu:    f32,
+    pub peak_mem:    f32,
+    pub peak_gpu:    f32,
+    pub peak_disk:   f32,
+    pub peak_temp:   f32,
+    /// Session-peak download in bytes/sec — converted to % of cap at render time.
+    pub peak_net_rx: f32,
+
+    #[cfg(windows)]
+    tray: Option<crate::tray::TrayHandle>,
 }
 
 impl MonitorApp {
@@ -186,8 +193,7 @@ impl MonitorApp {
         fps_collector::start(Arc::clone(&fps));
 
         let vis_init = CardVisibility::load();
-        let card_anim_init    = CardAnim::new(&vis_init);
-        let compact_anim_init = if vis_init.compact_mode { 1.0_f32 } else { 0.0_f32 };
+        let card_anim_init  = CardAnim::new(&vis_init);
         let prev_shown_init = [
             vis_init.show_fps, vis_init.show_gpu, vis_init.show_net,
             vis_init.show_disk, vis_init.show_temp,
@@ -241,18 +247,22 @@ impl MonitorApp {
             applied_opacity: -1.0, // force first-frame application
             opacity_startup_frames: 0,
             prev_always_on_top: false,
-            prev_compact_mode: None,
             prev_passthrough_mode: false,
             passthrough_active: false,
             prev_show_about: false,
             is_elevated: check_elevated(),
-            card_anim:    card_anim_init,
-            compact_anim: compact_anim_init,
-            // Seed to match the actual startup layout so frame 1 doesn't trigger a spurious resize.
-            prev_render_compact: Some(compact_anim_init > 0.5),
-            saved_normal_height: None,
+            card_anim: card_anim_init,
             prev_shown_cards: prev_shown_init,
             prev_compact_font_size: prev_font_size_init,
+            startup_resize_pending: true,
+            peak_cpu:    0.0,
+            peak_mem:    0.0,
+            peak_gpu:    0.0,
+            peak_disk:   0.0,
+            peak_temp:   0.0,
+            peak_net_rx: 0.0,
+            #[cfg(windows)]
+            tray: crate::tray::TrayHandle::build(),
         }
     }
 
@@ -308,6 +318,14 @@ impl MonitorApp {
         }
 
         self.tick_phase = 0.0;
+
+        // Update session peaks
+        self.peak_cpu    = self.peak_cpu.max(snap.cpu.total_usage);
+        self.peak_mem    = self.peak_mem.max(snap.memory.usage_percent());
+        self.peak_net_rx = self.peak_net_rx.max(snap.network.total_rx_bps as f32);
+        if let Some(u) = snap.gpu.utilization_percent { self.peak_gpu  = self.peak_gpu.max(u); }
+        if let Some(d) = snap.disks.first()           { self.peak_disk = self.peak_disk.max(d.usage_percent()); }
+        if let Some(t) = snap.temps.cpu_celsius       { self.peak_temp = self.peak_temp.max(t.clamp(0.0, 100.0)); }
     }
 
     fn advance_displays(&mut self, dt: f32) {
@@ -326,21 +344,14 @@ impl MonitorApp {
         interp_buf(&mut self.disp_disk,     &self.prev_disk,     &self.hist_disk.as_vec(),     t);
     }
 
-    /// Advance card-collapse and compact-mode cross-dissolve animations.
+    /// Advance card-collapse animations.
     pub fn advance_card_anims(&mut self, dt: f32, vis: &CardVisibility) {
-        const CARD_SPD:    f32 = 5.0;  // 200 ms full collapse/expand
-        const COMPACT_SPD: f32 = 4.0;  // 250 ms full mode cross-dissolve
-
+        const CARD_SPD: f32 = 5.0;  // 200 ms full collapse/expand
         let step = dt * CARD_SPD;
         let shows = [vis.show_fps, vis.show_gpu, vis.show_net, vis.show_disk, vis.show_temp];
         for (i, &show) in shows.iter().enumerate() {
             move_toward(&mut self.card_anim.scale[i], if show { 1.0 } else { 0.0 }, step);
         }
-        move_toward(
-            &mut self.compact_anim,
-            if vis.compact_mode { 1.0 } else { 0.0 },
-            dt * COMPACT_SPD,
-        );
     }
 }
 
@@ -357,20 +368,6 @@ fn move_toward(val: &mut f32, target: f32, step: f32) {
     if diff.abs() <= step { *val = target; } else { *val += diff.signum() * step; }
 }
 
-/// Compute the window height that fits the normal-mode card layout for the given config.
-///
-/// Card height estimate: spectrum(44) + header(14) + stat_line(12) + internal spacing(9)
-/// + frame overhead(16) ≈ 95 px.  Item spacing between cards = 4 px.
-fn normal_window_height(vis: &CardVisibility) -> f32 {
-    let n_optional = [vis.show_fps, vis.show_gpu, vis.show_net, vis.show_disk, vis.show_temp]
-        .iter()
-        .filter(|&&x| x)
-        .count();
-    let n = 2 + n_optional;
-    let content_h = n as f32 * 95.0 + (n.saturating_sub(1)) as f32 * 4.0;
-    36.0 + 24.0 + content_h  // titlebar + panel inner_margins + content
-}
-
 /// Compute the window height that exactly fits the compact layout for the given config.
 ///
 /// Formula: titlebar(36) + panel_margins(24) + n_cards × row_height + (n_cards−1) × item_spacing
@@ -381,7 +378,8 @@ fn compact_window_height(vis: &CardVisibility) -> f32 {
         .filter(|&&x| x)
         .count();
     let n = 2 + n_optional;  // CPU + MEM always shown
-    let row_h = (vis.compact_font_size + 12.0).max(24.0) + 14.0; // content + frame overhead
+    // content height: value text + sub-label + fill bar; frame overhead: inner_margin(10)+outer(4)=14
+    let row_h = (vis.compact_font_size + 14.0).max(44.0) + 14.0;
     let content_h = n as f32 * row_h + (n.saturating_sub(1)) as f32 * 2.0;
     36.0 + 24.0 + content_h  // titlebar + panel inner_margins + content
 }
@@ -526,53 +524,21 @@ impl eframe::App for MonitorApp {
             }
         }
 
-        // Snapshot card visibility once — used by all three resize checks below and
-        // by advance_card_anims later in the frame.
+        // Snapshot card visibility once — used by all resize checks and advance_card_anims.
         let vis_snap = self.card_vis.lock().map(|v| v.clone()).unwrap_or_default();
 
-        // Adjust minimum window width when compact mode changes (or on first frame)
-        let compact_mode = vis_snap.compact_mode;
-        if self.prev_compact_mode != Some(compact_mode) {
-            self.prev_compact_mode = Some(compact_mode);
-            let min_w = if compact_mode { 110.0f32 } else { 200.0f32 };
-            ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(min_w, 200.0)));
-        }
-
-        // Snap window height at the moment compact_anim crosses 0.5 — that is exactly
-        // when the content opacity is 0 and the layout switches, so the resize is invisible.
-        let render_compact_now = self.compact_anim > 0.5;
-        if self.prev_render_compact != Some(render_compact_now) {
-            // Read the previous state BEFORE updating it so we can detect direction.
-            let came_from_normal = self.prev_render_compact == Some(false);
-            self.prev_render_compact = Some(render_compact_now);
-
+        // First frame: set min size and snap window to compact height.
+        if self.startup_resize_pending {
+            self.startup_resize_pending = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(110.0, 200.0)));
             let cur_w = ctx.input(|i| i.viewport().inner_rect)
                 .map(|r| r.width()).unwrap_or(350.0);
-            if render_compact_now {
-                // Only save the normal height when we know we were actually in normal mode
-                // (not on startup when compact_mode was already true).
-                if came_from_normal {
-                    self.saved_normal_height = Some(
-                        ctx.input(|i| i.viewport().inner_rect)
-                            .map(|r| r.height())
-                            .unwrap_or(650.0),
-                    );
-                }
-                let new_h = compact_window_height(&vis_snap);
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(cur_w, new_h)));
-            } else {
-                // Restore the saved normal height, or compute a sensible fit for the
-                // number of active cards if we never recorded a normal-mode height
-                // (e.g. app was launched directly in compact mode).
-                let h = self.saved_normal_height
-                    .unwrap_or_else(|| normal_window_height(&vis_snap));
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(cur_w, h)));
-            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(
+                egui::vec2(cur_w, compact_window_height(&vis_snap)),
+            ));
         }
 
-        // Snap window height when individual cards are added or removed.
-        // In compact mode we compute a tight fit; in normal mode we compute a fitted height
-        // and also refresh saved_normal_height so the compact→normal restore stays correct.
+        // Snap height when individual cards are toggled.
         let cur_shown = [
             vis_snap.show_fps, vis_snap.show_gpu, vis_snap.show_net,
             vis_snap.show_disk, vis_snap.show_temp,
@@ -581,28 +547,19 @@ impl eframe::App for MonitorApp {
             self.prev_shown_cards = cur_shown;
             let cur_w = ctx.input(|i| i.viewport().inner_rect)
                 .map(|r| r.width()).unwrap_or(350.0);
-            let normal_h = normal_window_height(&vis_snap);
-            // Always keep saved_normal_height in sync with the current card count so
-            // the compact→normal restore uses the right height even when cards were
-            // toggled while the user was in compact mode.
-            self.saved_normal_height = Some(normal_h);
-            if render_compact_now {
-                let new_h = compact_window_height(&vis_snap);
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(cur_w, new_h)));
-            } else {
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(cur_w, normal_h)));
-            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(
+                egui::vec2(cur_w, compact_window_height(&vis_snap)),
+            ));
         }
 
-        // Snap compact window height when the font-size slider moves.
-        if render_compact_now
-            && (vis_snap.compact_font_size - self.prev_compact_font_size).abs() > 0.1
-        {
+        // Snap height when the font-size slider moves.
+        if (vis_snap.compact_font_size - self.prev_compact_font_size).abs() > 0.1 {
             self.prev_compact_font_size = vis_snap.compact_font_size;
             let cur_w = ctx.input(|i| i.viewport().inner_rect)
                 .map(|r| r.width()).unwrap_or(350.0);
-            let new_h = compact_window_height(&vis_snap);
-            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(cur_w, new_h)));
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(
+                egui::vec2(cur_w, compact_window_height(&vis_snap)),
+            ));
         }
 
         // Passthrough (game overlay): armed via config, Ctrl held → temporarily interactive
@@ -615,6 +572,30 @@ impl eframe::App for MonitorApp {
 
         let snap = self.snapshot.read().map(|g| g.clone()).unwrap_or_default();
         let fps_snap = self.fps.read().map(|g| g.clone()).unwrap_or_default();
+
+        // Poll tray icon events — update live tooltip + handle Exit / Show commands
+        #[cfg(windows)]
+        if let Some(ref tray) = self.tray {
+            let tip = format!("CPU {:.0}%{}",
+                snap.cpu.total_usage,
+                snap.gpu.utilization_percent
+                    .filter(|_| snap.gpu.available)
+                    .map(|g| format!("  ·  GPU {:.0}%", g))
+                    .unwrap_or_default(),
+            );
+            tray.set_tooltip(&tip);
+            while let Ok(cmd) = tray.rx.try_recv() {
+                match cmd {
+                    crate::tray::TrayCmd::ShowWindow => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    }
+                    crate::tray::TrayCmd::Exit => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                }
+            }
+        }
 
         // Gate history pushes to match the background collector interval
         if self.last_tick.elapsed() >= crate::collector::INTERVAL {

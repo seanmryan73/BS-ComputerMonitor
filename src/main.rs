@@ -5,6 +5,8 @@ mod collector;
 mod fps_collector;
 mod models;
 mod theme;
+#[cfg(windows)]
+mod tray;
 mod ui;
 
 fn build_icon() -> egui::IconData {
@@ -67,8 +69,8 @@ fn main() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("BS Computer Monitor")
-            .with_inner_size([350.0, 650.0])
-            .with_min_inner_size([200.0, 400.0])
+            .with_inner_size([350.0, 400.0])
+            .with_min_inner_size([110.0, 200.0])
             .with_decorations(false)
             .with_transparent(false)
             .with_icon(std::sync::Arc::new(build_icon())),

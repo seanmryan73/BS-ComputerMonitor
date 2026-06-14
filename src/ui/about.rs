@@ -34,7 +34,7 @@ pub fn show(
 
     let mut builder = ViewportBuilder::default()
         .with_title("BS Monitor — Settings")
-        .with_inner_size([360.0, 740.0])
+        .with_inner_size([360.0, 700.0])
         .with_resizable(false)
         .with_maximize_button(false);
 
@@ -145,16 +145,11 @@ pub fn show(
                             );
                         }
 
-                        // ── Display mode ──────────────────────────────────
-                        section(ui, theme, "DISPLAY MODE");
+                        // ── Appearance ────────────────────────────────────
+                        section(ui, theme, "APPEARANCE");
 
                         if let Ok(mut vis) = card_vis.lock() {
-                            let c1 = toggle(ui, theme, body, &mut vis.compact_mode,
-                                "COMPACT  —  numbers only, narrower window");
-                            let is_compact = vis.compact_mode;
-                            ui.add_space(6.0);
-                            let col = if is_compact { body } else { hint };
-                            ui.label(RichText::new("VALUE SIZE").color(col).monospace().size(11.0));
+                            ui.label(RichText::new("VALUE SIZE").color(body).monospace().size(11.0));
                             ui.add_space(2.0);
                             let slider = egui::Slider::new(
                                 &mut vis.compact_font_size,
@@ -162,8 +157,7 @@ pub fn show(
                             )
                             .custom_formatter(|v, _| format!("{:.0} pt", v))
                             .custom_parser(|s| s.trim_end_matches("pt").trim().parse().ok());
-                            let c2 = ui.add_enabled(is_compact, slider).changed();
-                            if c1 || c2 { vis.save(); }
+                            if ui.add(slider).changed() { vis.save(); }
                         }
 
                         // ── Visible cards ─────────────────────────────────
@@ -234,6 +228,56 @@ pub fn show(
                                     }
                                 });
                             if vis.selected_gpu_index != prev { vis.save(); }
+                        }
+
+                        // ── Network ───────────────────────────────────────
+                        section(ui, theme, "NETWORK");
+
+                        ui.label(RichText::new("BANDWIDTH CAP").color(body).monospace().size(11.0));
+                        ui.add_space(3.0);
+                        ui.label(
+                            RichText::new("Sets 100% on the NET fill bar and health colours")
+                                .color(hint)
+                                .monospace()
+                                .size(10.5),
+                        );
+                        ui.add_space(5.0);
+
+                        if let Ok(mut vis) = card_vis.lock() {
+                            const PRESETS: &[(f32, &str)] = &[
+                                (10.0,    "10 Mbps"),
+                                (25.0,    "25 Mbps"),
+                                (50.0,    "50 Mbps"),
+                                (100.0,   "100 Mbps  —  Fast Ethernet"),
+                                (250.0,   "250 Mbps"),
+                                (500.0,   "500 Mbps"),
+                                (1000.0,  "1 Gbps  —  Gigabit"),
+                                (2500.0,  "2.5 Gbps"),
+                                (10000.0, "10 Gbps"),
+                            ];
+                            let cur_label = PRESETS.iter()
+                                .find(|&&(v, _)| (v - vis.net_cap_mbps).abs() < 0.5)
+                                .map(|&(_, l)| l)
+                                .unwrap_or("Custom");
+                            let prev = vis.net_cap_mbps;
+                            egui::ComboBox::from_id_source("net_cap_select")
+                                .selected_text(
+                                    RichText::new(cur_label)
+                                        .monospace()
+                                        .size(11.0)
+                                        .color(theme.text_primary),
+                                )
+                                .width(ui.available_width() - 8.0)
+                                .show_ui(ui, |ui| {
+                                    for &(val, label) in PRESETS {
+                                        ui.selectable_value(
+                                            &mut vis.net_cap_mbps,
+                                            val,
+                                            RichText::new(label).monospace().size(11.0),
+                                        );
+                                    }
+                                });
+                            if (vis.net_cap_mbps - prev).abs() > 0.1 { vis.save(); }
                         }
 
                         // ── Window ────────────────────────────────────────

@@ -26,6 +26,7 @@ env_logger = "0.11"
 
 [target.'cfg(windows)'.dependencies]
 wmi = "0.13"
+tray-icon = "0.19"
 # Same major version as wmi's transitive dep — Cargo unifies them, no double-compile.
 windows = { version = "0.57", features = [
     "Foundation",
