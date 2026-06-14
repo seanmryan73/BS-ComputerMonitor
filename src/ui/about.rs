@@ -78,7 +78,7 @@ pub fn show(
                                 .strong(),
                         );
                         ui.label(
-                            RichText::new("v1.96.9  ·  System Resource Monitor")
+                            RichText::new("v2026.06.14  ·  System Resource Monitor")
                                 .color(body)
                                 .monospace()
                                 .size(11.0),
