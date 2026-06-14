@@ -2,11 +2,14 @@
 
 use std::sync::{Arc, Mutex};
 
-use egui::{Color32, Frame, Margin, RichText, Stroke, Vec2, ViewportBuilder, ViewportId};
+use egui::{Color32, Frame, Margin, Rect, RichText, Rounding, Stroke, Vec2, ViewportBuilder, ViewportId};
 
 use crate::{app::CardVisibility, theme::Theme};
 
 const CLOSE_ID: &str = "about_close_requested";
+
+// Panel background — slightly lighter than the main app bg for visual separation.
+const PANEL_BG: Color32 = Color32::from_rgb(0x0C, 0x0C, 0x16);
 
 pub fn show(
     ctx: &egui::Context,
@@ -31,7 +34,7 @@ pub fn show(
 
     let mut builder = ViewportBuilder::default()
         .with_title("BS Monitor — Settings")
-        .with_inner_size([360.0, 720.0])
+        .with_inner_size([360.0, 740.0])
         .with_resizable(false)
         .with_maximize_button(false);
 
@@ -43,101 +46,102 @@ pub fn show(
         ViewportId::from_hash_of("about_viewport"),
         builder,
         move |ctx, _class| {
-            let is_elevated = is_elevated;
             let gpu_names = gpu_names.clone();
             if ctx.input(|i| i.viewport().close_requested()) {
                 ctx.data_mut(|d| d.insert_temp(egui::Id::new(CLOSE_ID), true));
             }
 
-            let mut vis = egui::Visuals::dark();
-            vis.override_text_color = Some(theme.text_primary);
-            vis.panel_fill = Color32::from_rgb(0x07, 0x06, 0x12);
+            // Inherit the full theme widget styles — don't wipe them with a bare dark() visuals.
+            let mut vis = ctx.style().visuals.clone();
+            vis.panel_fill = PANEL_BG;
             vis.selection.bg_fill = theme.accent_cpu;
             ctx.set_visuals(vis);
 
+            // Text levels used in this panel.
+            // body  — readable secondary text (~65% white), replaces the near-invisible text_subtle
+            // hint  — tertiary / disabled labels, uses text_subtle (not text_dim which is invisible)
+            let body = Color32::from_rgb(0xA8, 0xA8, 0xC0);
+            let hint = theme.text_subtle;
+
             egui::CentralPanel::default()
-                .frame(
-                    Frame::none()
-                        .fill(Color32::from_rgb(0x07, 0x06, 0x12))
-                        .inner_margin(Margin::same(20.0)),
-                )
+                .frame(Frame::none().fill(PANEL_BG).inner_margin(Margin::same(18.0)))
                 .show(ctx, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
+
                         // ── Header ────────────────────────────────────────
+                        ui.add_space(2.0);
                         ui.label(
                             RichText::new("BS COMPUTER MONITOR")
                                 .color(theme.accent_cpu)
                                 .monospace()
-                                .size(17.0)
+                                .size(18.0)
                                 .strong(),
                         );
                         ui.label(
                             RichText::new("v1.96.9  ·  System Resource Monitor")
-                                .color(theme.text_subtle)
+                                .color(body)
                                 .monospace()
-                                .size(10.0),
+                                .size(11.0),
                         );
-                        ui.add_space(8.0);
-                        row(ui, theme, "AUTHOR",   "seanmryan@gmail.com");
-                        row(ui, theme, "COMPANY",  "BagPipes — BS Solutions");
-                        ui.add_space(4.0);
-                        row(ui, theme, "RUNTIME",  "Rust  ·  egui 0.29  ·  eframe 0.29");
-                        row(ui, theme, "PLATFORM", "Windows  ·  x86_64");
+                        ui.add_space(10.0);
+                        row(ui, theme, body, "AUTHOR",   "seanmryan@gmail.com");
+                        row(ui, theme, body, "COMPANY",  "BagPipes — BS Solutions");
+                        ui.add_space(2.0);
+                        row(ui, theme, body, "RUNTIME",  "Rust · egui 0.29 · eframe 0.29");
+                        row(ui, theme, body, "PLATFORM", "Windows · x86_64");
 
                         // ── Permissions ───────────────────────────────────
                         section(ui, theme, "PERMISSIONS");
 
                         if is_elevated {
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new("●").color(theme.ok).monospace().size(11.0));
-                                ui.add_space(4.0);
+                                ui.label(RichText::new("●").color(theme.ok).size(13.0));
                                 ui.label(
                                     RichText::new("Running as Administrator — all sensors active")
-                                        .color(theme.text_subtle)
+                                        .color(theme.ok)
                                         .monospace()
-                                        .size(10.0),
+                                        .size(11.5),
                                 );
                             });
                         } else {
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new("▲").color(theme.warn).monospace().size(11.0));
-                                ui.add_space(4.0);
+                                ui.label(RichText::new("▲").color(theme.warn).size(14.0));
                                 ui.label(
                                     RichText::new("Not running as Administrator")
                                         .color(theme.warn)
                                         .monospace()
-                                        .size(10.5)
+                                        .size(12.0)
                                         .strong(),
                                 );
                             });
                             ui.add_space(4.0);
                             ui.label(
                                 RichText::new("Some sensors require admin rights:")
-                                    .color(theme.text_dim)
+                                    .color(body)
                                     .monospace()
-                                    .size(10.0),
+                                    .size(11.0),
                             );
                             ui.add_space(2.0);
                             ui.label(
-                                RichText::new("  GPU utilization %\n  CPU / GPU temperatures")
-                                    .color(theme.text_subtle)
+                                RichText::new("  · GPU utilization %\n  · CPU / GPU temperatures")
+                                    .color(theme.text_primary)
                                     .monospace()
-                                    .size(10.0),
+                                    .size(11.0),
                             );
-                            ui.add_space(6.0);
+                            ui.add_space(8.0);
                             ui.label(
                                 RichText::new("TO RUN AS ADMINISTRATOR")
-                                    .color(theme.text_subtle)
+                                    .color(body)
                                     .monospace()
-                                    .size(10.0)
+                                    .size(11.0)
                                     .strong(),
                             );
-                            ui.add_space(2.0);
+                            ui.add_space(3.0);
                             ui.label(
-                                RichText::new("Right-click the .exe → Run as administrator\n\nOr create a shortcut → Properties → Advanced\n→ check \"Run as administrator\"")
-                                    .color(theme.text_dim)
+                                RichText::new("Right-click the .exe → Run as administrator\n\nOr: shortcut → Properties → Advanced\n→ check \"Run as administrator\"")
+                                    .color(hint)
                                     .monospace()
-                                    .size(10.0),
+                                    .size(10.5),
                             );
                         }
 
@@ -145,24 +149,21 @@ pub fn show(
                         section(ui, theme, "DISPLAY MODE");
 
                         if let Ok(mut vis) = card_vis.lock() {
-                            let c1 = toggle(ui, theme, &mut vis.compact_mode,
+                            let c1 = toggle(ui, theme, body, &mut vis.compact_mode,
                                 "COMPACT  —  numbers only, narrower window");
                             let is_compact = vis.compact_mode;
-                            ui.add_space(4.0);
-                            ui.horizontal(|ui| {
-                                let col = if is_compact { theme.text_subtle } else { theme.text_dim };
-                                ui.label(RichText::new("VALUE SIZE").color(col).monospace().size(10.0));
-                                let slider = egui::Slider::new(
-                                    &mut vis.compact_font_size,
-                                    11.0_f32..=60.0_f32,
-                                )
-                                .custom_formatter(|v, _| format!("{:.0} pt", v))
-                                .custom_parser(|s| {
-                                    s.trim_end_matches("pt").trim().parse().ok()
-                                });
-                                let c2 = ui.add_enabled(is_compact, slider).changed();
-                                if c1 || c2 { vis.save(); }
-                            });
+                            ui.add_space(6.0);
+                            let col = if is_compact { body } else { hint };
+                            ui.label(RichText::new("VALUE SIZE").color(col).monospace().size(11.0));
+                            ui.add_space(2.0);
+                            let slider = egui::Slider::new(
+                                &mut vis.compact_font_size,
+                                11.0_f32..=60.0_f32,
+                            )
+                            .custom_formatter(|v, _| format!("{:.0} pt", v))
+                            .custom_parser(|s| s.trim_end_matches("pt").trim().parse().ok());
+                            let c2 = ui.add_enabled(is_compact, slider).changed();
+                            if c1 || c2 { vis.save(); }
                         }
 
                         // ── Visible cards ─────────────────────────────────
@@ -171,57 +172,76 @@ pub fn show(
                         let mut always = true;
                         ui.add_enabled(false, egui::Checkbox::new(
                             &mut always,
-                            RichText::new("CPU  —  always visible").color(theme.text_dim).monospace().size(10.5),
+                            RichText::new("CPU  —  always visible").color(hint).monospace().size(12.0),
                         ));
                         ui.add_enabled(false, egui::Checkbox::new(
                             &mut always,
-                            RichText::new("MEM  —  always visible").color(theme.text_dim).monospace().size(10.5),
+                            RichText::new("MEM  —  always visible").color(hint).monospace().size(12.0),
                         ));
                         ui.add_space(2.0);
 
                         if let Ok(mut vis) = card_vis.lock() {
-                            let c1 = toggle(ui, theme, &mut vis.show_fps,  "FPS");
-                            let c2 = toggle(ui, theme, &mut vis.show_gpu,  "GPU");
-                            let c3 = toggle(ui, theme, &mut vis.show_net,  "NET");
-                            let c4 = toggle(ui, theme, &mut vis.show_disk, "DISK");
-                            let c5 = toggle(ui, theme, &mut vis.show_temp, "TEMP");
+                            let c1 = toggle(ui, theme, body, &mut vis.show_fps,  "FPS");
+                            let c2 = toggle(ui, theme, body, &mut vis.show_gpu,  "GPU");
+                            let c3 = toggle(ui, theme, body, &mut vis.show_net,  "NET");
+                            let c4 = toggle(ui, theme, body, &mut vis.show_disk, "DISK");
+                            let c5 = toggle(ui, theme, body, &mut vis.show_temp, "TEMP");
                             if c1 || c2 || c3 || c4 || c5 { vis.save(); }
                         }
 
-                        // ── GPU Adapter (only shown when 2+ GPUs detected) ─
-                        if gpu_names.len() > 1 {
-                            section(ui, theme, "GPU ADAPTER");
-                            if let Ok(mut vis) = card_vis.lock() {
-                                let clamped = vis.selected_gpu_index.min(gpu_names.len().saturating_sub(1));
-                                let selected_name = gpu_names.get(clamped).cloned().unwrap_or_default();
-                                let prev = vis.selected_gpu_index;
-                                egui::ComboBox::from_id_source("gpu_select")
-                                    .selected_text(
-                                        RichText::new(&selected_name)
-                                            .monospace()
-                                            .size(10.0)
-                                            .color(theme.text_primary),
-                                    )
-                                    .width(ui.available_width() - 8.0)
-                                    .show_ui(ui, |ui| {
-                                        for (i, name) in gpu_names.iter().enumerate() {
-                                            ui.selectable_value(
-                                                &mut vis.selected_gpu_index,
-                                                i,
-                                                RichText::new(name).monospace().size(10.0),
-                                            );
-                                        }
-                                    });
-                                if vis.selected_gpu_index != prev { vis.save(); }
-                            }
+                        // ── GPU Adapter ───────────────────────────────────
+                        section(ui, theme, "GPU ADAPTER");
+
+                        if gpu_names.is_empty() {
+                            ui.label(
+                                RichText::new("Detecting…")
+                                    .color(hint)
+                                    .monospace()
+                                    .size(11.0),
+                            );
+                        } else if gpu_names.len() == 1 {
+                            ui.label(
+                                RichText::new(&gpu_names[0])
+                                    .color(theme.text_primary)
+                                    .monospace()
+                                    .size(11.5),
+                            );
+                            ui.label(
+                                RichText::new("Only one GPU detected")
+                                    .color(hint)
+                                    .monospace()
+                                    .size(10.5),
+                            );
+                        } else if let Ok(mut vis) = card_vis.lock() {
+                            let clamped = vis.selected_gpu_index.min(gpu_names.len().saturating_sub(1));
+                            let selected_name = gpu_names.get(clamped).cloned().unwrap_or_default();
+                            let prev = vis.selected_gpu_index;
+                            egui::ComboBox::from_id_source("gpu_select")
+                                .selected_text(
+                                    RichText::new(&selected_name)
+                                        .monospace()
+                                        .size(11.0)
+                                        .color(theme.text_primary),
+                                )
+                                .width(ui.available_width() - 8.0)
+                                .show_ui(ui, |ui| {
+                                    for (i, name) in gpu_names.iter().enumerate() {
+                                        ui.selectable_value(
+                                            &mut vis.selected_gpu_index,
+                                            i,
+                                            RichText::new(name).monospace().size(11.0),
+                                        );
+                                    }
+                                });
+                            if vis.selected_gpu_index != prev { vis.save(); }
                         }
 
                         // ── Window ────────────────────────────────────────
                         section(ui, theme, "WINDOW");
 
-                        ui.add_space(6.0);
-                        ui.label(RichText::new("OPACITY").color(theme.text_subtle).monospace().size(10.0));
                         ui.add_space(2.0);
+                        ui.label(RichText::new("OPACITY").color(body).monospace().size(11.0));
+                        ui.add_space(4.0);
 
                         if let Ok(mut vis) = card_vis.lock() {
                             let resp = ui.add(
@@ -237,78 +257,80 @@ pub fn show(
                         // ── Game overlay / Passthrough ────────────────────
                         section(ui, theme, "GAME OVERLAY / PASSTHROUGH");
 
-                        // Crosshair icon callout — shows exactly what the button looks like
                         ui.horizontal(|ui| {
                             let (rect, _) = ui.allocate_exact_size(
-                                egui::Vec2::splat(28.0), egui::Sense::hover(),
+                                egui::Vec2::splat(30.0), egui::Sense::hover(),
                             );
                             let c = rect.center();
-                            let r = 5.5_f32;
-                            let gap = 2.0;
-                            let stroke = egui::Stroke::new(1.2, theme.accent_cpu);
+                            let r = 6.0_f32;
+                            let gap = 2.2;
+                            let stroke = egui::Stroke::new(1.4, theme.accent_cpu);
                             let p = ui.painter();
                             p.circle_stroke(c, r, stroke);
-                            p.line_segment([c + egui::vec2(0.0, -(r+gap)), c + egui::vec2(0.0, -(r+gap+3.5))], stroke);
-                            p.line_segment([c + egui::vec2(0.0,  r+gap),   c + egui::vec2(0.0,  r+gap+3.5)],   stroke);
-                            p.line_segment([c + egui::vec2(-(r+gap), 0.0), c + egui::vec2(-(r+gap+3.5), 0.0)], stroke);
-                            p.line_segment([c + egui::vec2( r+gap,   0.0), c + egui::vec2( r+gap+3.5,   0.0)], stroke);
-                            p.circle_filled(c, 1.2, theme.accent_cpu);
+                            p.line_segment([c + egui::vec2(0.0, -(r+gap)), c + egui::vec2(0.0, -(r+gap+4.0))], stroke);
+                            p.line_segment([c + egui::vec2(0.0,  r+gap),   c + egui::vec2(0.0,  r+gap+4.0)],   stroke);
+                            p.line_segment([c + egui::vec2(-(r+gap), 0.0), c + egui::vec2(-(r+gap+4.0), 0.0)], stroke);
+                            p.line_segment([c + egui::vec2( r+gap,   0.0), c + egui::vec2( r+gap+4.0,   0.0)], stroke);
+                            p.circle_filled(c, 1.4, theme.accent_cpu);
 
-                            ui.add_space(6.0);
+                            ui.add_space(4.0);
                             ui.label(
                                 RichText::new("Click this button (top-left of title bar)\nto toggle passthrough on or off.")
-                                    .color(theme.text_subtle)
+                                    .color(body)
                                     .monospace()
-                                    .size(9.5),
+                                    .size(11.0),
                             );
                         });
 
                         ui.add_space(6.0);
                         ui.label(
-                            RichText::new("Mouse clicks pass through to whatever is behind the window so you can play normally while stats float on top.")
-                                .color(theme.text_dim)
+                            RichText::new("Mouse clicks pass through to the game/app behind the window so you can play normally while stats float on top.")
+                                .color(hint)
                                 .monospace()
-                                .size(9.5),
+                                .size(10.5),
                         );
-                        ui.add_space(6.0);
+                        ui.add_space(8.0);
                         ui.label(
                             RichText::new("TO INTERACT WHILE PASSTHROUGH IS ON")
-                                .color(theme.text_subtle)
+                                .color(body)
                                 .monospace()
-                                .size(9.5)
+                                .size(11.0)
                                 .strong(),
                         );
-                        ui.add_space(2.0);
+                        ui.add_space(3.0);
                         ui.label(
-                            RichText::new("Hold Ctrl — clicks go to this app instead of passing through.  Use it to drag, resize, open settings, or click the crosshair button to turn passthrough off.")
-                                .color(theme.text_dim)
+                            RichText::new("Hold Ctrl — clicks go to this app instead of passing through. Use it to drag, resize, open settings, or click the crosshair to turn passthrough off.")
+                                .color(hint)
                                 .monospace()
-                                .size(9.5),
+                                .size(10.5),
                         );
                         ui.add_space(4.0);
                         ui.label(
-                            RichText::new("Both passthrough and pin-on-top reset to OFF on restart.")
-                                .color(theme.text_subtle)
+                            RichText::new("Passthrough and pin-on-top reset to OFF on restart.")
+                                .color(hint)
                                 .monospace()
-                                .size(9.5)
+                                .size(10.5)
                                 .italics(),
                         );
 
-                        // ── Reset ─────────────────────────────────────────
+                        // ── Buttons ───────────────────────────────────────
+                        ui.add_space(16.0);
+                        divider(ui, theme.accent_cpu, 0.5);
                         ui.add_space(12.0);
-                        divider(ui, theme.accent_cpu, 0.35);
-                        ui.add_space(8.0);
 
-                        ui.vertical_centered(|ui| {
+                        ui.horizontal(|ui| {
+                            let btn_w = (ui.available_width() - 12.0) / 2.0;
+
                             let reset_btn = egui::Button::new(
                                 RichText::new("RESET TO DEFAULTS")
                                     .color(theme.crit)
                                     .monospace()
-                                    .size(10.5),
+                                    .size(11.0)
+                                    .strong(),
                             )
-                            .fill(Color32::from_rgba_unmultiplied(30, 10, 10, 220))
+                            .fill(Color32::from_rgba_unmultiplied(40, 10, 10, 240))
                             .stroke(Stroke::new(1.0, theme.crit))
-                            .min_size(Vec2::new(160.0, 24.0));
+                            .min_size(Vec2::new(btn_w, 30.0));
 
                             if ui.add(reset_btn)
                                 .on_hover_text("Show all cards · opacity 100%")
@@ -319,66 +341,84 @@ pub fn show(
                                     vis.save();
                                 }
                             }
-                        });
 
-                        // ── Close ─────────────────────────────────────────
-                        ui.add_space(8.0);
-                        ui.vertical_centered(|ui| {
-                            let btn = egui::Button::new(
+                            ui.add_space(12.0);
+
+                            let close_btn = egui::Button::new(
                                 RichText::new("CLOSE")
                                     .color(theme.text_primary)
                                     .monospace()
                                     .size(11.0),
                             )
-                            .fill(Color32::from_rgba_unmultiplied(30, 30, 50, 220))
-                            .stroke(Stroke::new(1.0, theme.card_border))
-                            .min_size(Vec2::new(100.0, 26.0));
+                            .fill(Color32::from_rgba_unmultiplied(20, 20, 40, 240))
+                            .stroke(Stroke::new(1.0, theme.accent_cpu))
+                            .min_size(Vec2::new(btn_w, 30.0));
 
-                            if ui.add(btn).clicked() {
+                            if ui.add(close_btn).clicked() {
                                 ctx.data_mut(|d| d.insert_temp(egui::Id::new(CLOSE_ID), true));
                                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                             }
                         });
 
-                        ui.add_space(12.0);
+                        ui.add_space(14.0);
                     }); // ScrollArea
                 });
         },
     );
 }
 
-fn toggle(ui: &mut egui::Ui, theme: Theme, value: &mut bool, label: &str) -> bool {
-    let color = if *value { theme.text_primary } else { theme.text_dim };
-    ui.checkbox(value, RichText::new(label).color(color).monospace().size(10.5))
+fn toggle(ui: &mut egui::Ui, _theme: Theme, body: Color32, value: &mut bool, label: &str) -> bool {
+    let color = if *value { Color32::from_rgb(0xEE, 0xEE, 0xF4) } else { body };
+    ui.checkbox(value, RichText::new(label).color(color).monospace().size(12.0))
         .changed()
 }
 
-fn row(ui: &mut egui::Ui, theme: Theme, label: &str, value: &str) {
+fn row(ui: &mut egui::Ui, theme: Theme, body: Color32, label: &str, value: &str) {
     ui.horizontal(|ui| {
         ui.label(
             RichText::new(format!("{:<10}", label))
-                .color(theme.text_subtle)
+                .color(body)
                 .monospace()
-                .size(10.5),
+                .size(11.5),
         );
-        ui.label(RichText::new("·").color(theme.text_dim).monospace().size(10.5));
-        ui.add_space(4.0);
-        ui.label(RichText::new(value).color(theme.text_primary).monospace().size(10.5));
+        ui.label(
+            RichText::new(value)
+                .color(theme.text_primary)
+                .monospace()
+                .size(11.5),
+        );
     });
 }
 
 fn section(ui: &mut egui::Ui, theme: Theme, title: &str) {
-    ui.add_space(10.0);
-    divider(ui, theme.accent_cpu, 0.35);
-    ui.add_space(6.0);
-    ui.label(
-        RichText::new(title)
-            .color(theme.accent_cpu)
-            .monospace()
-            .size(10.5)
-            .strong(),
+    ui.add_space(14.0);
+
+    // Full-width background strip for the section header.
+    let avail_w = ui.available_width();
+    let (strip_rect, _) = ui.allocate_exact_size(Vec2::new(avail_w, 22.0), egui::Sense::hover());
+    ui.painter().rect_filled(
+        strip_rect,
+        Rounding::same(3.0),
+        Color32::from_rgba_unmultiplied(
+            theme.accent_cpu.r(),
+            theme.accent_cpu.g(),
+            theme.accent_cpu.b(),
+            22,
+        ),
     );
-    ui.add_space(4.0);
+    // Left accent bar
+    let bar = Rect::from_min_size(strip_rect.min, Vec2::new(3.0, 22.0));
+    ui.painter().rect_filled(bar, Rounding::same(2.0), theme.accent_cpu);
+    // Title text centred vertically in the strip
+    ui.painter().text(
+        strip_rect.min + egui::vec2(10.0, 11.0),
+        egui::Align2::LEFT_CENTER,
+        title,
+        egui::FontId::new(11.5, egui::FontFamily::Monospace),
+        theme.accent_cpu,
+    );
+
+    ui.add_space(8.0);
 }
 
 fn divider(ui: &mut egui::Ui, color: Color32, alpha_frac: f32) {
