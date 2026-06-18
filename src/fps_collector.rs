@@ -101,24 +101,15 @@ mod inner {
         let opcode = r.EventHeader.EventDescriptor.Opcode;
         let task   = r.EventHeader.EventDescriptor.Task;
 
-        // Accept two classes of "one present = one count" events:
-        //
-        // 1. DXGI Present_Stop (task 9, opcode 2) — fires for DWM-composited games.
-        //    Games using the MPO/IndependentFlip path do NOT fire this event.
-        //
-        // 2. DxgKrnl flip events (opcode 0, Info) — fire for games using
-        //    Independent Flip / MPO direct presentation. One per frame, game's PID.
-        //    keyword 0x40000 (PresentHistogram) restricts to present-related events only;
-        //    opcode 0 is correct — the _Stop suffix in TraceEvent names does not imply opcode 2 here.
-        //      task  3 = Flip
-        //      task 17 = MMIOFlip
-        //      task143 = FlipMultiPlaneOverlay
-        //      task144 = MMIOFlipMultiPlaneOverlay
-        //      task151 = IndependentFlip (modern DX11/DX12 borderless games)
+        // Two event sources, one count per presented frame:
+        // 1. DXGI Present_Stop (task 9, opcode 2) — DWM-composited games.
+        // 2. DxgKrnl Flip_Stop / FlipMPO_Stop (opcode 2) — Independent Flip / MPO / RTX games
+        //    (DXGI Present_Stop does NOT fire for these; DxgKrnl flip Stop does).
         let is_present = if r.EventHeader.ProviderId == DXGI_GUID {
             opcode == 2 && task == 9
         } else if r.EventHeader.ProviderId == DXGKRNL_GUID {
-            opcode == 0 // keyword 0x40000 scopes to PresentHistogram; accept any task
+            // Flip_Stop / FlipMPO_Stop = opcode 2; task 3=Flip, 17=MMIOFlip, 143=FlipMPO, 144=MMIOFlipMPO, 151=IndependentFlip
+            opcode == 2 && matches!(task, 3 | 17 | 143 | 144 | 151)
         } else {
             false
         };
