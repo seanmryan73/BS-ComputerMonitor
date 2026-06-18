@@ -180,7 +180,8 @@ pub fn show(
                             let c3 = toggle(ui, theme, body, &mut vis.show_net,  "NET");
                             let c4 = toggle(ui, theme, body, &mut vis.show_disk, "DISK");
                             let c5 = toggle(ui, theme, body, &mut vis.show_temp, "TEMP");
-                            if c1 || c2 || c3 || c4 || c5 { vis.save(); }
+                            let c6 = toggle(ui, theme, body, &mut vis.show_ping, "PING");
+                            if c1 || c2 || c3 || c4 || c5 || c6 { vis.save(); }
                         }
 
                         // ── GPU Adapter ───────────────────────────────────

@@ -4,7 +4,7 @@ use egui::{Align, Align2, Color32, FontFamily, FontId, Layout, Rect, Rounding, S
 
 use crate::{
     app::{CardVisibility, MonitorApp},
-    models::{fmt_bytes, fmt_bps_parts, FpsSnapshot, SystemSnapshot},
+    models::{fmt_bytes, fmt_bps_parts, FpsSnapshot, PingSnapshot, SystemSnapshot},
 };
 
 use super::widgets::{bar_fill_gradient, glow_card, mini_sparkline};
@@ -16,6 +16,7 @@ pub fn show_grid(
     ui: &mut Ui,
     snap: &SystemSnapshot,
     fps: &FpsSnapshot,
+    ping: &PingSnapshot,
     vis: &CardVisibility,
 ) {
     let fs = vis.compact_font_size;
@@ -85,6 +86,16 @@ pub fn show_grid(
         let peak = snap.temps.cpu_celsius.map(|_| app.peak_temp);
         compact_row(ui, &app.theme, "TEMP", app.theme.accent_temp, &val, col, fs,
             bar, &sub, &hist, 100.0, peak);
+    });
+    draw_card_anim(ui, app, 5, |ui, app| {
+        let val  = compact_ping_val(ping);
+        let col  = compact_ping_color(app, ping);
+        let sub  = compact_ping_sub(ping);
+        // Scale gauge 0–200 ms; clamp so > 200 ms just pegs the bar.
+        let bar  = ping.latency_ms.map(|ms| (ms as f32 / 200.0 * 100.0).clamp(0.0, 100.0));
+        let hist = app.hist_ping.as_vec();
+        compact_row(ui, &app.theme, "PING", app.theme.accent_net, &val, col, fs,
+            bar, &sub, &hist, 200.0, None);
     });
 }
 
@@ -385,6 +396,51 @@ fn compact_temp_sub(snap: &SystemSnapshot) -> String {
         Some(t) => format!("GPU  {t:.0}°C"),
         None if snap.temps.cpu_celsius.is_some() => "GPU  —".into(),
         None => "no sensor".into(),
+    }
+}
+
+fn compact_ping_val(ping: &PingSnapshot) -> String {
+    if ping.sample_count == 0 {
+        return "— ms".into();
+    }
+    match ping.latency_ms {
+        Some(ms) => format!("{ms} ms"),
+        None     => "— ms".into(),
+    }
+}
+
+fn compact_ping_color(app: &MonitorApp, ping: &PingSnapshot) -> Color32 {
+    if ping.sample_count == 0 {
+        return app.theme.text_subtle;
+    }
+    if ping.loss_pct >= 100.0 {
+        return app.theme.crit;
+    }
+    match ping.latency_ms {
+        None                          => app.theme.crit,
+        Some(ms) if ms > 150         => app.theme.crit,
+        Some(ms) if ms > 50          => app.theme.warn,
+        _                            => app.theme.accent_net,
+    }
+}
+
+fn compact_ping_sub(ping: &PingSnapshot) -> String {
+    if ping.sample_count == 0 {
+        return "measuring…".into();
+    }
+    if ping.loss_pct >= 100.0 {
+        return "OFFLINE".into();
+    }
+    let quality = match ping.avg_ms as u32 {
+        0..=20   => "EXCELLENT",
+        21..=50  => "GOOD",
+        51..=150 => "FAIR",
+        _        => "POOR",
+    };
+    if ping.loss_pct > 0.0 {
+        format!("avg {:.0}ms  loss {:.0}%", ping.avg_ms, ping.loss_pct)
+    } else {
+        format!("avg {:.0}ms  {quality}", ping.avg_ms)
     }
 }
 

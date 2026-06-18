@@ -6,8 +6,8 @@ use egui::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    collector, fps_collector,
-    models::{FpsSnapshot, MetricHistory, SystemSnapshot, HISTORY_LEN},
+    collector, fps_collector, ping_collector,
+    models::{FpsSnapshot, MetricHistory, PingSnapshot, SystemSnapshot, HISTORY_LEN},
     theme::Theme,
     ui,
 };
@@ -27,6 +27,8 @@ pub struct CardVisibility {
     pub show_net:  bool,
     pub show_disk: bool,
     pub show_temp: bool,
+    #[serde(default = "default_true")]
+    pub show_ping: bool,
     #[serde(default = "default_opacity")]
     pub opacity: f32,
     #[serde(default = "default_compact_font_size")]
@@ -46,14 +48,15 @@ pub struct CardVisibility {
 fn default_opacity() -> f32 { 1.0 }
 fn default_compact_font_size() -> f32 { 22.0 }
 fn default_net_cap_mbps() -> f32 { 1000.0 }
+fn default_true() -> bool { true }
 
-/// Per-card collapse animation state for the 5 optional cards [fps, gpu, net, disk, temp].
+/// Per-card collapse animation state for the 6 optional cards [fps, gpu, net, disk, temp, ping].
 pub struct CardAnim {
     /// Visual scale: 0.0 = fully collapsed/hidden, 1.0 = fully shown.
-    pub scale:  [f32; 5],
+    pub scale:  [f32; 6],
     /// Last measured card content height (px, excluding item_spacing) — used as
     /// the collapse target so surrounding cards slide smoothly as this one shrinks.
-    pub height: [f32; 5],
+    pub height: [f32; 6],
 }
 
 impl CardAnim {
@@ -65,8 +68,9 @@ impl CardAnim {
                 if vis.show_net  { 1.0 } else { 0.0 },
                 if vis.show_disk { 1.0 } else { 0.0 },
                 if vis.show_temp { 1.0 } else { 0.0 },
+                if vis.show_ping { 1.0 } else { 0.0 },
             ],
-            height: [95.0; 5],
+            height: [95.0; 6],
         }
     }
 }
@@ -75,7 +79,7 @@ impl Default for CardVisibility {
     fn default() -> Self {
         Self {
             show_fps: true, show_gpu: true, show_net: true,
-            show_disk: true, show_temp: true,
+            show_disk: true, show_temp: true, show_ping: true,
             opacity: 1.0,
             compact_font_size: 22.0,
             always_on_top: false,
@@ -108,7 +112,8 @@ impl CardVisibility {
 
 pub struct MonitorApp {
     snapshot: Arc<RwLock<SystemSnapshot>>,
-    pub fps: Arc<RwLock<FpsSnapshot>>,
+    pub fps:  Arc<RwLock<FpsSnapshot>>,
+    pub ping: Arc<RwLock<PingSnapshot>>,
     pub theme: Theme,
 
     pub hist_cpu: MetricHistory,
@@ -118,6 +123,7 @@ pub struct MonitorApp {
     pub hist_fps:      MetricHistory,
     pub hist_temp_cpu: MetricHistory,
     pub hist_disk:     MetricHistory,
+    pub hist_ping:     MetricHistory,
 
     last_tick: std::time::Instant,
     first_tick: bool,
@@ -136,7 +142,7 @@ pub struct MonitorApp {
     pub card_anim: CardAnim,
     /// Tracks which optional cards were shown last frame so we can snap the
     /// window height whenever a card is added or removed.
-    prev_shown_cards: [bool; 5],
+    prev_shown_cards: [bool; 6],
     /// Tracks the compact font size so a window resize fires when the slider moves.
     prev_compact_font_size: f32,
     /// True on the very first frame — fires the initial window size snap.
@@ -165,11 +171,14 @@ impl MonitorApp {
         let fps = Arc::new(RwLock::new(FpsSnapshot::default()));
         fps_collector::start(Arc::clone(&fps));
 
+        let ping = Arc::new(RwLock::new(PingSnapshot::default()));
+        ping_collector::start(Arc::clone(&ping));
+
         let vis_init = CardVisibility::load();
         let card_anim_init  = CardAnim::new(&vis_init);
         let prev_shown_init = [
             vis_init.show_fps, vis_init.show_gpu, vis_init.show_net,
-            vis_init.show_disk, vis_init.show_temp,
+            vis_init.show_disk, vis_init.show_temp, vis_init.show_ping,
         ];
         let prev_font_size_init = vis_init.compact_font_size;
 
@@ -180,6 +189,7 @@ impl MonitorApp {
         Self {
             snapshot,
             fps,
+            ping,
             theme,
             hist_cpu: MetricHistory::new(HISTORY_LEN),
             hist_mem: MetricHistory::new(HISTORY_LEN),
@@ -188,6 +198,7 @@ impl MonitorApp {
             hist_fps:      MetricHistory::new(HISTORY_LEN),
             hist_temp_cpu: MetricHistory::new(HISTORY_LEN),
             hist_disk:     MetricHistory::new(HISTORY_LEN),
+            hist_ping:     MetricHistory::new(HISTORY_LEN),
             // Subtract one interval so the first tick fires immediately on first frame
             last_tick: std::time::Instant::now()
                 .checked_sub(crate::collector::INTERVAL)
@@ -218,7 +229,7 @@ impl MonitorApp {
         }
     }
 
-    fn tick_histories(&mut self, snap: &SystemSnapshot, fps_snap: &FpsSnapshot) {
+    fn tick_histories(&mut self, snap: &SystemSnapshot, fps_snap: &FpsSnapshot, ping_snap: &PingSnapshot) {
         let is_first = self.first_tick;
         if is_first { self.first_tick = false; }
 
@@ -239,6 +250,9 @@ impl MonitorApp {
             if let Some(d) = snap.disks.first() {
                 self.hist_disk.push(d.usage_percent());
             }
+            if let Some(ms) = ping_snap.latency_ms {
+                self.hist_ping.push(ms as f32);
+            }
         }
 
         // Update session peaks
@@ -254,7 +268,7 @@ impl MonitorApp {
     pub fn advance_card_anims(&mut self, dt: f32, vis: &CardVisibility) {
         const CARD_SPD: f32 = 5.0;  // 200 ms full collapse/expand
         let step = dt * CARD_SPD;
-        let shows = [vis.show_fps, vis.show_gpu, vis.show_net, vis.show_disk, vis.show_temp];
+        let shows = [vis.show_fps, vis.show_gpu, vis.show_net, vis.show_disk, vis.show_temp, vis.show_ping];
         for (i, &show) in shows.iter().enumerate() {
             move_toward(&mut self.card_anim.scale[i], if show { 1.0 } else { 0.0 }, step);
         }
@@ -272,7 +286,7 @@ fn move_toward(val: &mut f32, target: f32, step: f32) {
 /// Formula: titlebar(36) + panel_margins(24) + n_cards × row_height + (n_cards−1) × item_spacing
 /// where row_height = card_content(font_size+12, min 24) + frame_overhead(14).
 fn compact_window_height(vis: &CardVisibility) -> f32 {
-    let n_optional = [vis.show_fps, vis.show_gpu, vis.show_net, vis.show_disk, vis.show_temp]
+    let n_optional = [vis.show_fps, vis.show_gpu, vis.show_net, vis.show_disk, vis.show_temp, vis.show_ping]
         .iter()
         .filter(|&&x| x)
         .count();
@@ -427,7 +441,7 @@ impl eframe::App for MonitorApp {
         // Snap height when individual cards are toggled.
         let cur_shown = [
             vis_snap.show_fps, vis_snap.show_gpu, vis_snap.show_net,
-            vis_snap.show_disk, vis_snap.show_temp,
+            vis_snap.show_disk, vis_snap.show_temp, vis_snap.show_ping,
         ];
         if cur_shown != self.prev_shown_cards {
             self.prev_shown_cards = cur_shown;
@@ -458,6 +472,7 @@ impl eframe::App for MonitorApp {
 
         let snap = self.snapshot.read().map(|g| g.clone()).unwrap_or_default();
         let fps_snap = self.fps.read().map(|g| g.clone()).unwrap_or_default();
+        let ping_snap = self.ping.read().map(|g| g.clone()).unwrap_or_default();
 
         // Poll tray icon events — update live tooltip + handle Exit / Show commands
         #[cfg(windows)]
@@ -485,13 +500,13 @@ impl eframe::App for MonitorApp {
 
         // Gate history pushes to match the background collector interval
         if self.last_tick.elapsed() >= crate::collector::INTERVAL {
-            self.tick_histories(&snap, &fps_snap);
+            self.tick_histories(&snap, &fps_snap, &ping_snap);
             self.last_tick = std::time::Instant::now();
         }
 
         let dt = ctx.input(|i| i.unstable_dt).min(0.05);
         self.advance_card_anims(dt, &vis_snap);
 
-        ui::draw(self, ctx, frame, &snap, &fps_snap);
+        ui::draw(self, ctx, frame, &snap, &fps_snap, &ping_snap);
     }
 }

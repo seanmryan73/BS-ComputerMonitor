@@ -11,7 +11,7 @@ use egui::{
 };
 
 use std::sync::Arc;
-use crate::{app::MonitorApp, models::{FpsSnapshot, SystemSnapshot}};
+use crate::{app::MonitorApp, models::{FpsSnapshot, PingSnapshot, SystemSnapshot}};
 
 pub fn draw(
     app: &mut MonitorApp,
@@ -19,6 +19,7 @@ pub fn draw(
     _frame: &mut eframe::Frame,
     snap: &SystemSnapshot,
     fps: &FpsSnapshot,
+    ping: &PingSnapshot,
 ) {
     let tb_bg = app.theme.titlebar_bg;
     let bg = app.theme.bg;
@@ -45,7 +46,7 @@ pub fn draw(
     CentralPanel::default()
         .frame(Frame::none().fill(bg).inner_margin(egui::Margin::same(12.0)))
         .show(ctx, |ui| {
-            cards::show_grid(app, ui, snap, fps, &vis);
+            cards::show_grid(app, ui, snap, fps, ping, &vis);
         });
 
     // Settings window — separate opaque OS window to the left

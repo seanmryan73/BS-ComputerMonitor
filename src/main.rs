@@ -4,6 +4,7 @@ mod app;
 mod collector;
 mod fps_collector;
 mod models;
+mod ping_collector;
 mod theme;
 #[cfg(windows)]
 mod tray;

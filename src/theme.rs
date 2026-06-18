@@ -34,16 +34,16 @@ pub struct Theme {
 impl Default for Theme {
     fn default() -> Self {
         Self {
-            // Coral Storm — dark teal-black grounds, hot coral accent
-            bg:          Color32::from_rgb(0x04, 0x0C, 0x09),
-            card_bg:     Color32::from_rgb(0x0B, 0x18, 0x12),
+            // Coral Storm — dark navy grounds, hot coral accent (matches BS-VChanger palette)
+            bg:          Color32::from_rgb(0x07, 0x09, 0x0E),
+            card_bg:     Color32::from_rgb(0x0C, 0x10, 0x18),
             card_border: Color32::from_rgb(0xA0, 0x3C, 0x06),
-            titlebar_bg: Color32::from_rgb(0x02, 0x07, 0x05),
-            hover_bg:    Color32::from_rgb(0x15, 0x26, 0x1C),
+            titlebar_bg: Color32::from_rgb(0x04, 0x06, 0x09),
+            hover_bg:    Color32::from_rgb(0x12, 0x18, 0x24),
 
-            text_primary: Color32::from_rgb(0xE8, 0xDF, 0xD4),
-            text_subtle:  Color32::from_rgb(0x58, 0x7A, 0x66),
-            text_dim:     Color32::from_rgb(0x1C, 0x30, 0x24),
+            text_primary: Color32::from_rgb(0xE4, 0xDE, 0xD8),
+            text_subtle:  Color32::from_rgb(0x4A, 0x64, 0x78),
+            text_dim:     Color32::from_rgb(0x10, 0x16, 0x22),
 
             // Coral Storm accents
             accent_cpu:  Color32::from_rgb(0xE8, 0x60, 0x0A), // coral orange — primary
@@ -84,7 +84,7 @@ impl Theme {
         visuals.panel_fill = self.bg;
         visuals.window_fill = self.bg;
         visuals.faint_bg_color = self.card_bg;
-        visuals.extreme_bg_color = Color32::from_rgb(2, 5, 3);
+        visuals.extreme_bg_color = Color32::from_rgb(3, 4, 8);
         visuals.window_shadow = egui::Shadow::NONE;
         visuals.popup_shadow = egui::Shadow::NONE;
 
@@ -103,7 +103,7 @@ impl Theme {
         visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, self.accent_cpu);
         visuals.widgets.hovered.rounding = Rounding::same(4.0);
 
-        visuals.widgets.active.bg_fill = Color32::from_rgb(15, 28, 20);
+        visuals.widgets.active.bg_fill = Color32::from_rgb(12, 18, 28);
         visuals.widgets.active.fg_stroke = Stroke::new(1.0, self.accent_cpu);
         visuals.widgets.active.bg_stroke = Stroke::new(1.0, self.accent_cpu);
 

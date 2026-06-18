@@ -108,6 +108,22 @@ pub struct NetInterface {
     pub tx_bps: u64,
 }
 
+// ── Ping / connection quality ─────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Default)]
+pub struct PingSnapshot {
+    /// Round-trip time of the most recent ping; None = timeout or no data yet.
+    pub latency_ms: Option<u32>,
+    /// Rolling average over collected samples (ms).
+    pub avg_ms: f32,
+    /// Mean absolute deviation of successful pings — measures jitter (ms).
+    pub jitter_ms: f32,
+    /// Percentage of recent pings that timed out (0–100).
+    pub loss_pct: f32,
+    /// Number of samples collected so far (0 = warmup, not yet measured).
+    pub sample_count: usize,
+}
+
 // ── FPS ───────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Default)]
