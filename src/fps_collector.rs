@@ -106,8 +106,10 @@ mod inner {
         // 1. DXGI Present_Stop (task 9, opcode 2) — fires for DWM-composited games.
         //    Games using the MPO/IndependentFlip path do NOT fire this event.
         //
-        // 2. DxgKrnl flip events (opcode 0, info) — fire for games using
-        //    Independent Flip / MPO direct presentation. Per-frame, game's PID.
+        // 2. DxgKrnl flip events (opcode 0, Info) — fire for games using
+        //    Independent Flip / MPO direct presentation. One per frame, game's PID.
+        //    keyword 0x40000 (PresentHistogram) restricts to present-related events only;
+        //    opcode 0 is correct — the _Stop suffix in TraceEvent names does not imply opcode 2 here.
         //      task  3 = Flip
         //      task 17 = MMIOFlip
         //      task143 = FlipMultiPlaneOverlay
@@ -116,7 +118,7 @@ mod inner {
         let is_present = if r.EventHeader.ProviderId == DXGI_GUID {
             opcode == 2 && task == 9
         } else if r.EventHeader.ProviderId == DXGKRNL_GUID {
-            opcode == 0 && matches!(task, 3 | 17 | 143 | 144 | 151)
+            opcode == 0 // keyword 0x40000 scopes to PresentHistogram; accept any task
         } else {
             false
         };
@@ -233,15 +235,15 @@ mod inner {
                 0,
                 None,
             );
-            // DxgKrnl — "Present" keyword (0x8000000) enables flip events.
-            // Flip/MMIOFlip/IndependentFlip events all carry this keyword bit.
-            // Callback filters to flip tasks (3,17,143,144,151) with opcode 0.
+            // DxgKrnl — PresentHistogram keyword (0x40000) enables flip events.
+            // Flip/MMIOFlip/IndependentFlip Stop events (opcode 2) fire once per completed flip.
+            // Matches C# EtwCollectorService: keyword 0x40000, filters Flip_Stop / FlipMPO_Stop.
             let _ = EnableTraceEx2(
                 session,
                 &DXGKRNL_GUID,
                 1, // EVENT_CONTROL_CODE_ENABLE_PROVIDER
                 TRACE_LEVEL_INFORMATION,
-                0x0800_0000u64,
+                0x4_0000u64, // 0x40000 = PresentHistogram
                 0,
                 0,
                 None,

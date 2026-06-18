@@ -44,7 +44,7 @@ pub fn show(
             ""
         };
         if !title.is_empty() {
-            ui.label(RichText::new(title).color(theme.text_primary).size(13.0).strong());
+            ui.label(RichText::new(title).color(theme.accent_cpu).size(14.0).strong());
         }
 
         // Invisible drag region — guaranteed ≥ 30 px wide regardless of window size

@@ -34,26 +34,25 @@ pub struct Theme {
 impl Default for Theme {
     fn default() -> Self {
         Self {
-            // Sagrada Família — stone-dark grounds, jewel-tone light
-            bg:          Color32::from_rgb(0x07, 0x07, 0x0B),
-            card_bg:     Color32::from_rgb(0x12, 0x12, 0x18),
-            card_border: Color32::from_rgb(0x22, 0x22, 0x2C),
-            titlebar_bg: Color32::from_rgb(0x04, 0x04, 0x08),
-            hover_bg:    Color32::from_rgb(0x1A, 0x1A, 0x24),
+            // Coral Storm — dark teal-black grounds, hot coral accent
+            bg:          Color32::from_rgb(0x04, 0x0C, 0x09),
+            card_bg:     Color32::from_rgb(0x0B, 0x18, 0x12),
+            card_border: Color32::from_rgb(0xA0, 0x3C, 0x06),
+            titlebar_bg: Color32::from_rgb(0x02, 0x07, 0x05),
+            hover_bg:    Color32::from_rgb(0x15, 0x26, 0x1C),
 
-            text_primary: Color32::from_rgb(0xEE, 0xEE, 0xF4),
-            text_subtle:  Color32::from_rgb(0x62, 0x62, 0x72),
-            text_dim:     Color32::from_rgb(0x2E, 0x2E, 0x3A),
+            text_primary: Color32::from_rgb(0xE8, 0xDF, 0xD4),
+            text_subtle:  Color32::from_rgb(0x58, 0x7A, 0x66),
+            text_dim:     Color32::from_rgb(0x1C, 0x30, 0x24),
 
-            // Jewel accents — stained-glass depth, not neon
-            accent_cpu:  Color32::from_rgb( 48, 172, 248), // sapphire
-            accent_mem:  Color32::from_rgb(230, 138,  28), // amber topaz
-            accent_gpu:  Color32::from_rgb(162,  95, 238), // amethyst
-            accent_net:  Color32::from_rgb( 42, 200, 118), // jade emerald
-            accent_disk: Color32::from_rgb( 62, 122, 212), // lapis lazuli
-            accent_temp: Color32::from_rgb(228,  88,  52), // fire opal
+            // Coral Storm accents
+            accent_cpu:  Color32::from_rgb(0xE8, 0x60, 0x0A), // coral orange — primary
+            accent_mem:  Color32::from_rgb(0xE8, 0xA0, 0x1C), // amber gold
+            accent_gpu:  Color32::from_rgb(0xB0, 0x5C, 0xE8), // amethyst
+            accent_net:  Color32::from_rgb( 42, 200, 118),     // jade emerald
+            accent_disk: Color32::from_rgb(0xE8, 0x70, 0x28),  // warm coral
+            accent_temp: Color32::from_rgb(0xFF, 0x48, 0x08),  // hot orange-red
 
-            // Gemstone health
             ok:   Color32::from_rgb( 42, 200, 118), // emerald
             warn: Color32::from_rgb(238, 178,   8), // amber gold
             crit: Color32::from_rgb(225,  68,  68), // ruby
@@ -85,7 +84,7 @@ impl Theme {
         visuals.panel_fill = self.bg;
         visuals.window_fill = self.bg;
         visuals.faint_bg_color = self.card_bg;
-        visuals.extreme_bg_color = Color32::from_rgb(3, 3, 8);
+        visuals.extreme_bg_color = Color32::from_rgb(2, 5, 3);
         visuals.window_shadow = egui::Shadow::NONE;
         visuals.popup_shadow = egui::Shadow::NONE;
 
@@ -104,7 +103,7 @@ impl Theme {
         visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, self.accent_cpu);
         visuals.widgets.hovered.rounding = Rounding::same(4.0);
 
-        visuals.widgets.active.bg_fill = Color32::from_rgb(18, 25, 50);
+        visuals.widgets.active.bg_fill = Color32::from_rgb(15, 28, 20);
         visuals.widgets.active.fg_stroke = Stroke::new(1.0, self.accent_cpu);
         visuals.widgets.active.bg_stroke = Stroke::new(1.0, self.accent_cpu);
 

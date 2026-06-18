@@ -141,7 +141,7 @@ fn compact_row(
 ) {
     const BAR_H:  f32 = 3.0;
     const BAR_GAP: f32 = 4.0;
-    const SUB_C: Color32 = Color32::from_rgb(0x78, 0x78, 0x90);
+    const SUB_C: Color32 = Color32::from_rgb(0x68, 0x8E, 0x78);
 
     let top_y = ui.cursor().top();
 
