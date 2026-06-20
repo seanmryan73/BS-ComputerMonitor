@@ -34,29 +34,28 @@ pub struct Theme {
 impl Default for Theme {
     fn default() -> Self {
         Self {
-            // Coral Storm — dark navy grounds, hot coral accent (matches BS-VChanger palette)
-            bg:          Color32::from_rgb(0x07, 0x09, 0x0E),
-            card_bg:     Color32::from_rgb(0x0C, 0x10, 0x18),
-            card_border: Color32::from_rgb(0xA0, 0x3C, 0x06),
-            titlebar_bg: Color32::from_rgb(0x04, 0x06, 0x09),
-            hover_bg:    Color32::from_rgb(0x12, 0x18, 0x24),
+            // Coral Storm — standard palette: teal-black grounds, neon coral + turquoise accents
+            bg:          Color32::from_rgb(0x00, 0x12, 0x12), // #001212
+            card_bg:     Color32::from_rgb(0x00, 0x1e, 0x1e), // #001e1e
+            card_border: Color32::from_rgb(0x00, 0x38, 0x38), // #003838
+            titlebar_bg: Color32::from_rgb(0x00, 0x0a, 0x0a), // slightly darker than bg
+            hover_bg:    Color32::from_rgb(0x00, 0x2c, 0x2c), // #002c2c slider track
 
-            text_primary: Color32::from_rgb(0xE4, 0xDE, 0xD8),
-            text_subtle:  Color32::from_rgb(0x4A, 0x64, 0x78),
-            text_dim:     Color32::from_rgb(0x10, 0x16, 0x22),
+            text_primary: Color32::from_rgb(0xff, 0xf4, 0xee), // #fff4ee
+            text_subtle:  Color32::from_rgb(0x22, 0x99, 0x88), // #229988
+            text_dim:     Color32::from_rgb(0x00, 0x2c, 0x2c), // dark teal
 
-            // Coral Storm accents
-            accent_cpu:  Color32::from_rgb(0xE8, 0x60, 0x0A), // coral orange — primary
-            accent_mem:  Color32::from_rgb(0xE8, 0xA0, 0x1C), // amber gold
-            accent_gpu:  Color32::from_rgb(0xB0, 0x5C, 0xE8), // amethyst
-            accent_net:  Color32::from_rgb( 42, 200, 118),     // jade emerald
-            accent_disk: Color32::from_rgb(0xE8, 0x70, 0x28),  // warm coral
-            accent_temp: Color32::from_rgb(0xFF, 0x48, 0x08),  // hot orange-red
+            // Coral Storm metric accents — coral primary, turquoise secondary, variants in family
+            accent_cpu:  Color32::from_rgb(0xff, 0x55, 0x33), // #ff5533 standard accent (coral)
+            accent_mem:  Color32::from_rgb(0x00, 0xff, 0xdd), // #00ffdd standard accent_alt (turquoise)
+            accent_gpu:  Color32::from_rgb(0xff, 0x88, 0x66), // lighter coral
+            accent_net:  Color32::from_rgb(0x00, 0xdd, 0xbb), // muted turquoise
+            accent_disk: Color32::from_rgb(0xff, 0x44, 0x22), // #ff4422 widget border coral
+            accent_temp: Color32::from_rgb(0xff, 0x22, 0x00), // hot red-coral
 
-            ok:   Color32::from_rgb( 42, 200, 118), // emerald
-            warn: Color32::from_rgb(238, 178,   8), // amber gold
-            crit: Color32::from_rgb(225,  68,  68), // ruby
-
+            ok:   Color32::from_rgb(0x00, 0xdd, 0xbb), // teal — healthy
+            warn: Color32::from_rgb(0xff, 0xaa, 0x22), // amber
+            crit: Color32::from_rgb(0xff, 0x22, 0x11), // red-coral
         }
     }
 }
