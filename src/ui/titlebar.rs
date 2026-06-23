@@ -37,9 +37,9 @@ pub fn show(
         //        = panel - 174
         let title_budget = panel_w - 174.0;
         let title = if title_budget >= 148.0 {
-            "BS Computer Monitor"
+            "BC Computer Monitor"
         } else if title_budget >= 72.0 {
-            "BS Monitor"
+            "BC Monitor"
         } else {
             ""
         };

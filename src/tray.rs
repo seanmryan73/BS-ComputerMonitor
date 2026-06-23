@@ -22,7 +22,7 @@ impl TrayHandle {
         let (tx, rx) = mpsc::channel::<TrayCmd>();
 
         // Menu items
-        let show_item = MenuItem::new("Show BS Monitor", true, None);
+        let show_item = MenuItem::new("Show BC Monitor", true, None);
         let exit_item = MenuItem::new("Exit", true, None);
         let show_id   = show_item.id().clone();
         let exit_id   = exit_item.id().clone();
@@ -53,7 +53,7 @@ impl TrayHandle {
 
         let tray = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
-            .with_tooltip("BS Computer Monitor")
+            .with_tooltip("BC Computer Monitor")
             .with_icon(icon)
             .build()
             .ok()?;
@@ -72,19 +72,19 @@ fn build_icon() -> Option<tray_icon::Icon> {
     const H: u32 = 32;
     let mut rgba = vec![0u8; (W * H * 4) as usize];
     let bg = [0x07u8, 0x07, 0x0B, 0xFF];
-    let fg = [0x38u8, 0x96, 0xD8, 0xFF];
+    let fg = [0xFFu8, 0x14, 0x93, 0xFF]; // neon pink accent
     for c in rgba.chunks_exact_mut(4) { c.copy_from_slice(&bg); }
 
     const B: [[u8; 5]; 7] = [
         [1,1,1,1,0], [1,0,0,0,1], [1,0,0,0,1],
         [1,1,1,1,0], [1,0,0,0,1], [1,0,0,0,1], [1,1,1,1,0],
     ];
-    const S: [[u8; 5]; 7] = [
-        [0,1,1,1,1], [1,0,0,0,0], [1,0,0,0,0],
-        [0,1,1,1,0], [0,0,0,0,1], [0,0,0,0,1], [1,1,1,1,0],
+    const C: [[u8; 5]; 7] = [
+        [0,1,1,1,0], [1,0,0,0,0], [1,0,0,0,0],
+        [1,0,0,0,0], [1,0,0,0,0], [1,0,0,0,0], [0,1,1,1,0],
     ];
 
-    for (glyph, x0) in [(&B as &[[u8; 5]; 7], 3usize), (&S, 16)] {
+    for (glyph, x0) in [(&B as &[[u8; 5]; 7], 3usize), (&C, 16)] {
         for (row, bits) in glyph.iter().enumerate() {
             for (col, &on) in bits.iter().enumerate() {
                 if on == 0 { continue; }

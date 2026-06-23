@@ -16,7 +16,7 @@ fn build_icon() -> egui::IconData {
     let mut rgba = vec![0u8; W * H * 4];
 
     let bg: [u8; 4] = [0x07, 0x07, 0x0B, 0xFF];
-    let fg: [u8; 4] = [0x38, 0x96, 0xD8, 0xFF]; // sapphire accent
+    let fg: [u8; 4] = [0xFF, 0x14, 0x93, 0xFF]; // neon pink accent
 
     for chunk in rgba.chunks_exact_mut(4) {
         chunk.copy_from_slice(&bg);
@@ -32,18 +32,18 @@ fn build_icon() -> egui::IconData {
         [1,0,0,0,1],
         [1,1,1,1,0],
     ];
-    const S: [[u8; 5]; 7] = [
-        [0,1,1,1,1],
+    const C: [[u8; 5]; 7] = [
+        [0,1,1,1,0],
+        [1,0,0,0,0],
+        [1,0,0,0,0],
+        [1,0,0,0,0],
         [1,0,0,0,0],
         [1,0,0,0,0],
         [0,1,1,1,0],
-        [0,0,0,0,1],
-        [0,0,0,0,1],
-        [1,1,1,1,0],
     ];
 
-    // B at x=3, S at x=16, both at y=9 — each glyph 10×14 px at 2× scale
-    for (glyph, x0) in [(&B as &[[u8; 5]; 7], 3usize), (&S, 16usize)] {
+    // B at x=3, C at x=16, both at y=9 — each glyph 10×14 px at 2× scale
+    for (glyph, x0) in [(&B as &[[u8; 5]; 7], 3usize), (&C, 16usize)] {
         for (row, bits) in glyph.iter().enumerate() {
             for (col, &on) in bits.iter().enumerate() {
                 if on == 0 { continue; }
@@ -69,7 +69,7 @@ fn main() -> eframe::Result<()> {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("BS Computer Monitor")
+            .with_title("BC Computer Monitor")
             .with_inner_size([350.0, 400.0])
             .with_min_inner_size([110.0, 200.0])
             .with_decorations(false)
@@ -79,7 +79,7 @@ fn main() -> eframe::Result<()> {
     };
 
     eframe::run_native(
-        "BS Computer Monitor",
+        "BC Computer Monitor",
         native_options,
         Box::new(|cc| Ok(Box::new(app::MonitorApp::new(cc)))),
     )

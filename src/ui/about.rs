@@ -33,7 +33,7 @@ pub fn show(
     let theme = *theme;
 
     let mut builder = ViewportBuilder::default()
-        .with_title("BS Monitor — Settings")
+        .with_title("BC Monitor — Settings")
         .with_inner_size([360.0, 700.0])
         .with_resizable(false)
         .with_maximize_button(false);
@@ -71,21 +71,21 @@ pub fn show(
                         // ── Header ────────────────────────────────────────
                         ui.add_space(2.0);
                         ui.label(
-                            RichText::new("BS COMPUTER MONITOR")
+                            RichText::new("BC COMPUTER MONITOR")
                                 .color(theme.accent_cpu)
                                 .monospace()
                                 .size(18.0)
                                 .strong(),
                         );
                         ui.label(
-                            RichText::new("v2026.06.20  ·  System Resource Monitor")
+                            RichText::new("v2026.06.23  ·  System Resource Monitor")
                                 .color(body)
                                 .monospace()
                                 .size(11.0),
                         );
                         ui.add_space(10.0);
                         row(ui, theme, body, "AUTHOR",   "seanmryan@gmail.com");
-                        row(ui, theme, body, "COMPANY",  "BagPipes — BS Solutions");
+                        row(ui, theme, body, "COMPANY",  "BagPipes");
                         ui.add_space(2.0);
                         row(ui, theme, body, "RUNTIME",  "Rust · egui 0.29 · eframe 0.29");
                         row(ui, theme, body, "PLATFORM", "Windows · x86_64");
@@ -357,6 +357,49 @@ pub fn show(
                                 .size(10.5)
                                 .italics(),
                         );
+
+                        // ── Who Made This? ────────────────────────────────
+                        section(ui, theme, "WHO MADE THIS?");
+
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new("BagPipes")
+                                    .color(theme.accent_cpu)
+                                    .monospace()
+                                    .size(16.0)
+                                    .strong(),
+                            );
+                            ui.add_space(3.0);
+                            ui.label(
+                                RichText::new("\"Because knowing your system is half the battle.\"")
+                                    .color(hint)
+                                    .monospace()
+                                    .size(10.5)
+                                    .italics(),
+                            );
+                            ui.add_space(6.0);
+                        });
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(
+                                RichText::new("P.S.")
+                                    .color(theme.warn)
+                                    .monospace()
+                                    .size(11.0)
+                                    .strong(),
+                            );
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(
+                                    "The \"BS\" stands for BagPipes Software. \
+                                     We know what you were thinking. We respect it.",
+                                )
+                                .color(hint)
+                                .monospace()
+                                .size(10.5),
+                            );
+                        });
+                        ui.add_space(6.0);
 
                         // ── Buttons ───────────────────────────────────────
                         ui.add_space(16.0);

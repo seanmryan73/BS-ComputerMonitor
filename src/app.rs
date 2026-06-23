@@ -16,7 +16,7 @@ fn config_path() -> std::path::PathBuf {
     let base = std::env::var("APPDATA")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::path::PathBuf::from("."));
-    base.join("BSComputerMonitor").join("config.json")
+    base.join("BCComputerMonitor").join("config.json")
 }
 
 /// Persisted user config — card visibility + window opacity + display mode.
@@ -310,7 +310,7 @@ fn ctrl_held() -> bool { false }
 fn get_main_hwnd() -> Option<isize> {
     use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
     use windows::core::PCWSTR;
-    let title: Vec<u16> = "BS Computer Monitor\0".encode_utf16().collect();
+    let title: Vec<u16> = "BC Computer Monitor\0".encode_utf16().collect();
     let hwnd = unsafe { FindWindowW(PCWSTR::null(), PCWSTR(title.as_ptr())) };
     if hwnd.0 != 0 { Some(hwnd.0) } else { None }
 }

@@ -212,6 +212,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
 
 [[package]]
+name = "bc-computer-monitor"
+version = "2026.6.23"
+dependencies = [
+ "anyhow",
+ "eframe",
+ "egui",
+ "egui_plot",
+ "env_logger",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "thiserror 1.0.69",
+ "tray-icon",
+ "windows 0.57.0",
+ "wmi",
+]
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -242,26 +262,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdeb9d870516001442e364c5220d3574d2da8dc765554b4a617230d33fa58ef5"
 dependencies = [
  "objc2 0.6.4",
-]
-
-[[package]]
-name = "bs-computer-monitor"
-version = "2026.6.20"
-dependencies = [
- "anyhow",
- "eframe",
- "egui",
- "egui_plot",
- "env_logger",
- "log",
- "parking_lot",
- "serde",
- "serde_json",
- "sysinfo",
- "thiserror 1.0.69",
- "tray-icon",
- "windows 0.57.0",
- "wmi",
 ]
 
 [[package]]
