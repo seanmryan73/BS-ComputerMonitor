@@ -465,7 +465,7 @@ mod inner {
                 None,
             )?;
         }
-        let dxgi: IDXGIDevice = raw.unwrap().cast()?;
+        let dxgi: IDXGIDevice = raw.ok_or_else(|| anyhow::anyhow!("D3D11 device creation failed"))?.cast()?;
         let ins = unsafe { CreateDirect3D11DeviceFromDXGIDevice(&dxgi)? };
         Ok(ins.cast::<IDirect3DDevice>()?)
     }

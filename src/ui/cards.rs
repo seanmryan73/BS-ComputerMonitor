@@ -101,7 +101,7 @@ pub fn show_grid(
 
 /// Render an optional card with a height-collapse animation.
 ///
-/// `slot` indexes [fps=0, gpu=1, net=2, disk=3, temp=4].
+/// `slot` indexes [fps=0, gpu=1, net=2, disk=3, temp=4, ping=5].
 fn draw_card_anim<F>(ui: &mut Ui, app: &mut MonitorApp, slot: usize, draw_fn: F)
 where
     F: FnOnce(&mut Ui, &mut MonitorApp),

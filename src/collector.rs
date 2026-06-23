@@ -228,11 +228,11 @@ mod gpu_win {
                 adapter_descs: enumerate_dxgi_adapters(),
             };
             if let Ok(com) = COMLibrary::new() {
-                if let Ok(conn) = WMIConnection::new(com.clone()) {
+                if let Ok(conn) = WMIConnection::new(com) {
                     col.conn = Some(conn);
                     col.refresh_gpu_name();
                 }
-                if let Ok(tc) = WMIConnection::with_namespace_path("ROOT\\WMI", com.clone()) {
+                if let Ok(tc) = WMIConnection::with_namespace_path("ROOT\\WMI", com) {
                     col.thermal_conn = Some(tc);
                 }
                 col.com = Some(com);
