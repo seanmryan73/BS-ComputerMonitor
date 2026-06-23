@@ -5,11 +5,11 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub enum ThemeId {
-    #[default]
     CoralStorm,
     CandyPop,
     GlitchMode,
     ColdSteel,
+    #[default]
     Lucky,
 }
 
@@ -74,7 +74,7 @@ const WARN:        Color32 = Color32::from_rgb(0xff, 0xaa, 0x22);
 const CRIT:        Color32 = Color32::from_rgb(0xff, 0x22, 0x11);
 
 impl Default for Theme {
-    fn default() -> Self { Self::from_id(ThemeId::CoralStorm) }
+    fn default() -> Self { Self::from_id(ThemeId::Lucky) }
 }
 
 impl Theme {
