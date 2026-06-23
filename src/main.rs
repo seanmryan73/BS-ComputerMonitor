@@ -1,4 +1,9 @@
+// Author  : Sean Ryan <seanmryan@gmail.com>
+// Company : BagPipes
+// Version : 2026.06.23
+
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![allow(dead_code, unused_variables, unused_imports)]
 
 mod app;
 mod collector;

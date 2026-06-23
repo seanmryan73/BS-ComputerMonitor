@@ -6,9 +6,9 @@ egui/eframe Windows desktop system monitor. Displays CPU, GPU, memory, disk, and
 
 ## Reference notes (read these for standards)
 
-- Rust desktop standards: `C:\_repo\Obsidian\Notes\Claude\Reference\Rust-Desktop-Standards.md`
-- Author / version / company: `C:\_repo\Obsidian\Notes\Claude\Reference\Author-Version-Standards.md`
-- Project details: `C:\_repo\Obsidian\Notes\Claude\Projects\BS-ComputerMonitor Claude Context.md`
+- Rust desktop standards: `C:\_repos\Obsidian\Notes\Claude\Reference\Rust-Desktop-Standards.md`
+- Author / version / company: `C:\_repos\Obsidian\Notes\Claude\Reference\Author-Version-Standards.md`
+- Project details: `C:\_repos\Obsidian\Notes\Claude\Projects\BS-ComputerMonitor Claude Context.md`
 
 ## Author / version standard
 
