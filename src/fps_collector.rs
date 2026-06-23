@@ -84,6 +84,7 @@ mod inner {
 
     struct EtwState {
         presents: Mutex<HashMap<u32, PresentEntry>>,
+        own_pid: u32,
     }
 
     // Called on the ProcessTrace thread — must be fast.
@@ -119,6 +120,9 @@ mod inner {
         }
 
         let state = &*(r.UserContext as *const EtwState);
+        if pid == state.own_pid {
+            return;
+        }
         let now = Instant::now();
         let mut map = state.presents.lock();
         map.entry(pid)
@@ -249,6 +253,7 @@ mod inner {
 
         let state = Arc::new(EtwState {
             presents: Mutex::new(HashMap::new()),
+            own_pid: std::process::id(),
         });
         // Leak an Arc ref for the callback's UserContext; reclaimed when ProcessTrace exits.
         let ctx = Arc::into_raw(Arc::clone(&state)) as *mut c_void;
@@ -351,7 +356,7 @@ mod inner {
                 Direct3D11::CreateDirect3D11DeviceFromDXGIDevice,
                 Graphics::Capture::IGraphicsCaptureItemInterop,
             },
-            UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW},
+            UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId},
         },
     };
 
@@ -377,12 +382,16 @@ mod inner {
                 active = None;
                 last_hwnd = fg;
                 if fg.0 != 0 {
-                    match wgc_start(&d3d, fg) {
-                        Ok(s) => {
-                            active = Some(s);
-                            fps_tick = Instant::now();
+                    let mut fg_pid: u32 = 0;
+                    unsafe { GetWindowThreadProcessId(fg, Some(&mut fg_pid)); }
+                    if fg_pid != std::process::id() {
+                        match wgc_start(&d3d, fg) {
+                            Ok(s) => {
+                                active = Some(s);
+                                fps_tick = Instant::now();
+                            }
+                            Err(e) => log::debug!("WGC skip: {e}"),
                         }
-                        Err(e) => log::debug!("WGC skip: {e}"),
                     }
                 }
             }

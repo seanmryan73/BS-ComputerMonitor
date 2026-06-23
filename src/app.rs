@@ -241,9 +241,7 @@ impl MonitorApp {
             if let Some(u) = snap.gpu.utilization_percent {
                 self.hist_gpu.push(u);
             }
-            if fps_snap.active {
-                self.hist_fps.push(fps_snap.fps);
-            }
+            self.hist_fps.push(if fps_snap.active { fps_snap.fps } else { 0.0 });
             if let Some(t) = snap.temps.cpu_celsius {
                 self.hist_temp_cpu.push(t);
             }
@@ -291,8 +289,8 @@ fn compact_window_height(vis: &CardVisibility) -> f32 {
         .filter(|&&x| x)
         .count();
     let n = 2 + n_optional;  // CPU + MEM always shown
-    // content height: value text + sub-label + fill bar; frame overhead: inner_margin(10)+outer(4)=14
-    let row_h = (vis.compact_font_size + 14.0).max(44.0) + 14.0;
+    // content height: (font_size + padding[8] + bar_reserve[7]).max(min_h[38]); frame overhead: inner_margin(10)+outer(4)=14
+    let row_h = (vis.compact_font_size + 15.0).max(38.0) + 14.0;
     let content_h = n as f32 * row_h + (n.saturating_sub(1)) as f32 * 2.0;
     36.0 + 24.0 + content_h  // titlebar + panel inner_margins + content
 }

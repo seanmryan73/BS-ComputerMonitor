@@ -1,6 +1,6 @@
 //! Compact metric cards — fill bar, mini sparkline, peak tick, pulse animation.
 
-use egui::{Align, Align2, Color32, FontFamily, FontId, Layout, Rect, Rounding, Sense, Vec2};
+use egui::{Align, Align2, Color32, FontFamily, FontId, Layout, Rect, Rounding, Sense, Ui, Vec2};
 
 use crate::{
     app::{CardVisibility, MonitorApp},
@@ -444,4 +444,3 @@ fn compact_ping_sub(ping: &PingSnapshot) -> String {
     }
 }
 
-use egui::Ui;
