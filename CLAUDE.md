@@ -27,7 +27,7 @@ egui/eframe Windows desktop system monitor. Displays CPU, GPU, memory, disk, and
 ## Key constraints
 
 - **`unsafe` is required** — 25+ unsafe blocks for ETW, DX11, and WGC Windows API calls. Do NOT add `#![deny(unsafe_code)]`.
-- **Theme:** Custom per-metric `Theme` struct, not the standard 4-theme `ThemeManager`. Coral Storm palette applied to it.
+- **Theme:** Custom per-metric `Theme` struct with a `ThemeId` enum (5 themes: CoralStorm, CandyPop, GlitchMode, ColdSteel, Lucky — matching `Rust-Desktop-Standards.md`). `theme_id` is persisted in `CardVisibility`/`config.json`. Live switching via `prev_theme_id` diff in `update()`. Metric accents (cpu/mem/gpu/net/disk/temp) are shared constants across all themes — only surfaces and text colours change per theme.
 - **Console in debug:** `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` — the terminal is visible in debug for `env_logger`. Intentional; do not change.
 - **`windows` + `wmi` must be updated together** — transitive version coupling.
 - **Minimal edits** — prefer targeted changes; do not refactor surrounding code unless the task requires it.
