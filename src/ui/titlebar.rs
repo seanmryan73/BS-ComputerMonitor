@@ -76,7 +76,7 @@ fn close_btn(ui: &mut Ui, theme: &Theme) -> Response {
     let color = if resp.hovered() {
         egui::Color32::from_rgb(220, 60, 60)
     } else {
-        theme.text_dim
+        theme.text_subtle
     };
     let center = rect.center();
     let p = ui.painter();
@@ -97,7 +97,7 @@ fn min_btn(ui: &mut Ui, theme: &Theme) -> Response {
     let color = if resp.hovered() {
         theme.text_primary
     } else {
-        theme.text_dim
+        theme.text_subtle
     };
     let center = rect.center();
     ui.painter().line_segment(
@@ -109,7 +109,7 @@ fn min_btn(ui: &mut Ui, theme: &Theme) -> Response {
 
 fn about_btn(ui: &mut Ui, theme: &Theme) -> Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::click());
-    let color = if resp.hovered() { theme.accent_gpu } else { theme.text_dim };
+    let color = if resp.hovered() { theme.accent_gpu } else { theme.text_subtle };
     let c = rect.center();
     let p = ui.painter();
 

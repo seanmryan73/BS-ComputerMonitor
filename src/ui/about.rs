@@ -90,6 +90,20 @@ pub fn show(
                         row(ui, theme, body, "RUNTIME",  "Rust · egui 0.29 · eframe 0.29");
                         row(ui, theme, body, "PLATFORM", "Windows · x86_64");
 
+                        // ── Theme ─────────────────────────────────────────
+                        section(ui, theme, "THEME");
+
+                        if let Ok(mut vis) = card_vis.lock() {
+                            for &id in ThemeId::ALL {
+                                let selected = vis.theme_id == id;
+                                let color = if selected { theme.text_primary } else { body };
+                                if ui.radio(selected, RichText::new(id.label()).color(color).monospace().size(12.0)).clicked() {
+                                    vis.theme_id = id;
+                                    vis.save();
+                                }
+                            }
+                        }
+
                         // ── Permissions ───────────────────────────────────
                         section(ui, theme, "PERMISSIONS");
 
@@ -158,20 +172,6 @@ pub fn show(
                             .custom_formatter(|v, _| format!("{:.0} pt", v))
                             .custom_parser(|s| s.trim_end_matches("pt").trim().parse().ok());
                             if ui.add(slider).changed() { vis.save(); }
-                        }
-
-                        // ── Theme ─────────────────────────────────────────
-                        section(ui, theme, "THEME");
-
-                        if let Ok(mut vis) = card_vis.lock() {
-                            for id in [ThemeId::CoralStorm, ThemeId::CobaltStorm] {
-                                let selected = vis.theme_id == id;
-                                let color = if selected { theme.text_primary } else { body };
-                                if ui.radio(selected, RichText::new(id.label()).color(color).monospace().size(12.0)).clicked() {
-                                    vis.theme_id = id;
-                                    vis.save();
-                                }
-                            }
                         }
 
                         // ── Visible cards ─────────────────────────────────

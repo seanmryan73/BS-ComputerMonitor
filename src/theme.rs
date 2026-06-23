@@ -7,16 +7,30 @@ use serde::{Deserialize, Serialize};
 pub enum ThemeId {
     #[default]
     CoralStorm,
-    CobaltStorm,
+    CandyPop,
+    GlitchMode,
+    ColdSteel,
+    Lucky,
 }
 
 impl ThemeId {
     pub fn label(self) -> &'static str {
         match self {
             ThemeId::CoralStorm => "Coral Storm",
-            ThemeId::CobaltStorm => "Cobalt Storm",
+            ThemeId::CandyPop   => "Candy Pop",
+            ThemeId::GlitchMode => "Glitch Mode",
+            ThemeId::ColdSteel  => "Cold Steel",
+            ThemeId::Lucky      => "Lucky",
         }
     }
+
+    pub const ALL: &'static [ThemeId] = &[
+        ThemeId::CoralStorm,
+        ThemeId::CandyPop,
+        ThemeId::GlitchMode,
+        ThemeId::ColdSteel,
+        ThemeId::Lucky,
+    ];
 }
 
 #[derive(Clone, Copy)]
@@ -67,11 +81,11 @@ impl Theme {
     pub fn from_id(id: ThemeId) -> Self {
         match id {
             ThemeId::CoralStorm => Self {
-                bg:          Color32::from_rgb(0x00, 0x12, 0x12),
-                card_bg:     Color32::from_rgb(0x00, 0x1e, 0x1e),
-                card_border: Color32::from_rgb(0x00, 0x38, 0x38),
-                titlebar_bg: Color32::from_rgb(0x00, 0x0a, 0x0a),
-                hover_bg:    Color32::from_rgb(0x00, 0x2c, 0x2c),
+                bg:           Color32::from_rgb(0x00, 0x12, 0x12),
+                card_bg:      Color32::from_rgb(0x00, 0x1e, 0x1e),
+                card_border:  Color32::from_rgb(0x00, 0x38, 0x38),
+                titlebar_bg:  Color32::from_rgb(0x00, 0x0a, 0x0a),
+                hover_bg:     Color32::from_rgb(0x00, 0x2c, 0x2c),
                 text_primary: Color32::from_rgb(0xff, 0xf4, 0xee),
                 text_subtle:  Color32::from_rgb(0x22, 0x99, 0x88),
                 text_dim:     Color32::from_rgb(0x00, 0x2c, 0x2c),
@@ -79,15 +93,54 @@ impl Theme {
                 accent_net: ACCENT_NET, accent_disk: ACCENT_DISK, accent_temp: ACCENT_TEMP,
                 ok: OK, warn: WARN, crit: CRIT,
             },
-            ThemeId::CobaltStorm => Self {
-                bg:          Color32::from_rgb(0x02, 0x0a, 0x18),
-                card_bg:     Color32::from_rgb(0x04, 0x10, 0x28),
-                card_border: Color32::from_rgb(0x0a, 0x28, 0x55),
-                titlebar_bg: Color32::from_rgb(0x01, 0x06, 0x10),
-                hover_bg:    Color32::from_rgb(0x07, 0x18, 0x40),
-                text_primary: Color32::from_rgb(0xe8, 0xf0, 0xff),
-                text_subtle:  Color32::from_rgb(0x22, 0x66, 0xbb),
-                text_dim:     Color32::from_rgb(0x04, 0x10, 0x28),
+            ThemeId::CandyPop => Self {
+                bg:           Color32::from_rgb(0x10, 0x00, 0x08),
+                card_bg:      Color32::from_rgb(0x1e, 0x00, 0x12),
+                card_border:  Color32::from_rgb(0x30, 0x00, 0x1e),
+                titlebar_bg:  Color32::from_rgb(0x08, 0x00, 0x04),
+                hover_bg:     Color32::from_rgb(0x28, 0x00, 0x18),
+                text_primary: Color32::from_rgb(0xff, 0xdd, 0xee),
+                text_subtle:  Color32::from_rgb(0xaa, 0x00, 0x55),
+                text_dim:     Color32::from_rgb(0x1e, 0x00, 0x12),
+                accent_cpu: ACCENT_CPU, accent_mem: ACCENT_MEM, accent_gpu: ACCENT_GPU,
+                accent_net: ACCENT_NET, accent_disk: ACCENT_DISK, accent_temp: ACCENT_TEMP,
+                ok: OK, warn: WARN, crit: CRIT,
+            },
+            ThemeId::GlitchMode => Self {
+                bg:           Color32::from_rgb(0x00, 0x03, 0x00),
+                card_bg:      Color32::from_rgb(0x00, 0x08, 0x02),
+                card_border:  Color32::from_rgb(0x00, 0x1c, 0x06),
+                titlebar_bg:  Color32::from_rgb(0x00, 0x01, 0x00),
+                hover_bg:     Color32::from_rgb(0x00, 0x10, 0x00),
+                text_primary: Color32::from_rgb(0xcc, 0xff, 0xdd),
+                text_subtle:  Color32::from_rgb(0x00, 0x77, 0x33),
+                text_dim:     Color32::from_rgb(0x00, 0x08, 0x02),
+                accent_cpu: ACCENT_CPU, accent_mem: ACCENT_MEM, accent_gpu: ACCENT_GPU,
+                accent_net: ACCENT_NET, accent_disk: ACCENT_DISK, accent_temp: ACCENT_TEMP,
+                ok: OK, warn: WARN, crit: CRIT,
+            },
+            ThemeId::ColdSteel => Self {
+                bg:           Color32::from_rgb(0x08, 0x08, 0x08),
+                card_bg:      Color32::from_rgb(0x10, 0x10, 0x10),
+                card_border:  Color32::from_rgb(0x28, 0x28, 0x28),
+                titlebar_bg:  Color32::from_rgb(0x03, 0x03, 0x03),
+                hover_bg:     Color32::from_rgb(0x1a, 0x1a, 0x1a),
+                text_primary: Color32::from_rgb(0xec, 0xec, 0xec),
+                text_subtle:  Color32::from_rgb(0x66, 0x66, 0x66),
+                text_dim:     Color32::from_rgb(0x10, 0x10, 0x10),
+                accent_cpu: ACCENT_CPU, accent_mem: ACCENT_MEM, accent_gpu: ACCENT_GPU,
+                accent_net: ACCENT_NET, accent_disk: ACCENT_DISK, accent_temp: ACCENT_TEMP,
+                ok: OK, warn: WARN, crit: CRIT,
+            },
+            ThemeId::Lucky => Self {
+                bg:           Color32::from_rgb(0x14, 0x00, 0x2d),
+                card_bg:      Color32::from_rgb(0x2d, 0x08, 0x50),
+                card_border:  Color32::from_rgb(0x3c, 0x14, 0x5a),
+                titlebar_bg:  Color32::from_rgb(0x0a, 0x00, 0x18),
+                hover_bg:     Color32::from_rgb(0x23, 0x04, 0x41),
+                text_primary: Color32::from_rgb(0xc3, 0xff, 0x28),
+                text_subtle:  Color32::from_rgb(0x00, 0xa0, 0x8c),
+                text_dim:     Color32::from_rgb(0x2d, 0x08, 0x50),
                 accent_cpu: ACCENT_CPU, accent_mem: ACCENT_MEM, accent_gpu: ACCENT_GPU,
                 accent_net: ACCENT_NET, accent_disk: ACCENT_DISK, accent_temp: ACCENT_TEMP,
                 ok: OK, warn: WARN, crit: CRIT,
@@ -136,7 +189,7 @@ impl Theme {
         visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, self.accent_cpu);
         visuals.widgets.hovered.rounding = Rounding::same(4.0);
 
-        visuals.widgets.active.bg_fill = Color32::from_rgb(12, 18, 28);
+        visuals.widgets.active.bg_fill = self.hover_bg;
         visuals.widgets.active.fg_stroke = Stroke::new(1.0, self.accent_cpu);
         visuals.widgets.active.bg_stroke = Stroke::new(1.0, self.accent_cpu);
 
