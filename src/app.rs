@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     collector, fps_collector, ping_collector,
     models::{FpsSnapshot, MetricHistory, PingSnapshot, SystemSnapshot, HISTORY_LEN},
-    theme::Theme,
+    theme::{Theme, ThemeId},
     ui,
 };
 
@@ -43,6 +43,8 @@ pub struct CardVisibility {
     /// Bandwidth cap in Megabits/sec — sets 100% on the NET fill bar and health colours.
     #[serde(default = "default_net_cap_mbps")]
     pub net_cap_mbps: f32,
+    #[serde(default)]
+    pub theme_id: ThemeId,
 }
 
 fn default_opacity() -> f32 { 1.0 }
@@ -86,6 +88,7 @@ impl Default for CardVisibility {
             passthrough_mode: false,
             selected_gpu_index: 0,
             net_cap_mbps: 1000.0,
+            theme_id: ThemeId::CoralStorm,
         }
     }
 }
@@ -147,6 +150,7 @@ pub struct MonitorApp {
     prev_compact_font_size: f32,
     /// True on the very first frame — fires the initial window size snap.
     startup_resize_pending: bool,
+    prev_theme_id: ThemeId,
 
     /// Session-high watermarks — reset on app restart, used for peak ticks in compact mode.
     pub peak_cpu:    f32,
@@ -163,7 +167,8 @@ pub struct MonitorApp {
 
 impl MonitorApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let theme = Theme::default();
+        let initial_theme_id = CardVisibility::load().theme_id;
+        let theme = Theme::from_id(initial_theme_id);
         theme.apply(&cc.egui_ctx);
 
         let snapshot = Arc::new(RwLock::new(SystemSnapshot::default()));
@@ -218,6 +223,7 @@ impl MonitorApp {
             prev_shown_cards: prev_shown_init,
             prev_compact_font_size: prev_font_size_init,
             startup_resize_pending: true,
+            prev_theme_id: initial_theme_id,
             peak_cpu:    0.0,
             peak_mem:    0.0,
             peak_gpu:    0.0,
@@ -424,6 +430,13 @@ impl eframe::App for MonitorApp {
 
         // Snapshot card visibility once — used by all resize checks and advance_card_anims.
         let vis_snap = self.card_vis.lock().map(|v| v.clone()).unwrap_or_default();
+
+        // Re-apply egui style when the user switches theme.
+        if vis_snap.theme_id != self.prev_theme_id {
+            self.prev_theme_id = vis_snap.theme_id;
+            self.theme = Theme::from_id(vis_snap.theme_id);
+            self.theme.apply(ctx);
+        }
 
         // First frame: set min size and snap window to compact height.
         if self.startup_resize_pending {

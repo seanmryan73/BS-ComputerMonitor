@@ -1,6 +1,23 @@
 //! Colour palette and egui style configuration.
 
 use egui::{Color32, Margin, Rounding, Stroke, Visuals};
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+pub enum ThemeId {
+    #[default]
+    CoralStorm,
+    CobaltStorm,
+}
+
+impl ThemeId {
+    pub fn label(self) -> &'static str {
+        match self {
+            ThemeId::CoralStorm => "Coral Storm",
+            ThemeId::CobaltStorm => "Cobalt Storm",
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct Theme {
@@ -31,36 +48,53 @@ pub struct Theme {
 
 }
 
+// Shared accent colours — fixed across all themes.
+const ACCENT_CPU:  Color32 = Color32::from_rgb(0xff, 0x55, 0x33);
+const ACCENT_MEM:  Color32 = Color32::from_rgb(0x00, 0xff, 0xdd);
+const ACCENT_GPU:  Color32 = Color32::from_rgb(0xff, 0x88, 0x66);
+const ACCENT_NET:  Color32 = Color32::from_rgb(0x00, 0xdd, 0xbb);
+const ACCENT_DISK: Color32 = Color32::from_rgb(0xff, 0x44, 0x22);
+const ACCENT_TEMP: Color32 = Color32::from_rgb(0xff, 0x22, 0x00);
+const OK:          Color32 = Color32::from_rgb(0x00, 0xdd, 0xbb);
+const WARN:        Color32 = Color32::from_rgb(0xff, 0xaa, 0x22);
+const CRIT:        Color32 = Color32::from_rgb(0xff, 0x22, 0x11);
+
 impl Default for Theme {
-    fn default() -> Self {
-        Self {
-            // Coral Storm — standard palette: teal-black grounds, neon coral + turquoise accents
-            bg:          Color32::from_rgb(0x00, 0x12, 0x12), // #001212
-            card_bg:     Color32::from_rgb(0x00, 0x1e, 0x1e), // #001e1e
-            card_border: Color32::from_rgb(0x00, 0x38, 0x38), // #003838
-            titlebar_bg: Color32::from_rgb(0x00, 0x0a, 0x0a), // slightly darker than bg
-            hover_bg:    Color32::from_rgb(0x00, 0x2c, 0x2c), // #002c2c slider track
-
-            text_primary: Color32::from_rgb(0xff, 0xf4, 0xee), // #fff4ee
-            text_subtle:  Color32::from_rgb(0x22, 0x99, 0x88), // #229988
-            text_dim:     Color32::from_rgb(0x00, 0x2c, 0x2c), // dark teal
-
-            // Coral Storm metric accents — coral primary, turquoise secondary, variants in family
-            accent_cpu:  Color32::from_rgb(0xff, 0x55, 0x33), // #ff5533 standard accent (coral)
-            accent_mem:  Color32::from_rgb(0x00, 0xff, 0xdd), // #00ffdd standard accent_alt (turquoise)
-            accent_gpu:  Color32::from_rgb(0xff, 0x88, 0x66), // lighter coral
-            accent_net:  Color32::from_rgb(0x00, 0xdd, 0xbb), // muted turquoise
-            accent_disk: Color32::from_rgb(0xff, 0x44, 0x22), // #ff4422 widget border coral
-            accent_temp: Color32::from_rgb(0xff, 0x22, 0x00), // hot red-coral
-
-            ok:   Color32::from_rgb(0x00, 0xdd, 0xbb), // teal — healthy
-            warn: Color32::from_rgb(0xff, 0xaa, 0x22), // amber
-            crit: Color32::from_rgb(0xff, 0x22, 0x11), // red-coral
-        }
-    }
+    fn default() -> Self { Self::from_id(ThemeId::CoralStorm) }
 }
 
 impl Theme {
+    pub fn from_id(id: ThemeId) -> Self {
+        match id {
+            ThemeId::CoralStorm => Self {
+                bg:          Color32::from_rgb(0x00, 0x12, 0x12),
+                card_bg:     Color32::from_rgb(0x00, 0x1e, 0x1e),
+                card_border: Color32::from_rgb(0x00, 0x38, 0x38),
+                titlebar_bg: Color32::from_rgb(0x00, 0x0a, 0x0a),
+                hover_bg:    Color32::from_rgb(0x00, 0x2c, 0x2c),
+                text_primary: Color32::from_rgb(0xff, 0xf4, 0xee),
+                text_subtle:  Color32::from_rgb(0x22, 0x99, 0x88),
+                text_dim:     Color32::from_rgb(0x00, 0x2c, 0x2c),
+                accent_cpu: ACCENT_CPU, accent_mem: ACCENT_MEM, accent_gpu: ACCENT_GPU,
+                accent_net: ACCENT_NET, accent_disk: ACCENT_DISK, accent_temp: ACCENT_TEMP,
+                ok: OK, warn: WARN, crit: CRIT,
+            },
+            ThemeId::CobaltStorm => Self {
+                bg:          Color32::from_rgb(0x02, 0x0a, 0x18),
+                card_bg:     Color32::from_rgb(0x04, 0x10, 0x28),
+                card_border: Color32::from_rgb(0x0a, 0x28, 0x55),
+                titlebar_bg: Color32::from_rgb(0x01, 0x06, 0x10),
+                hover_bg:    Color32::from_rgb(0x07, 0x18, 0x40),
+                text_primary: Color32::from_rgb(0xe8, 0xf0, 0xff),
+                text_subtle:  Color32::from_rgb(0x22, 0x66, 0xbb),
+                text_dim:     Color32::from_rgb(0x04, 0x10, 0x28),
+                accent_cpu: ACCENT_CPU, accent_mem: ACCENT_MEM, accent_gpu: ACCENT_GPU,
+                accent_net: ACCENT_NET, accent_disk: ACCENT_DISK, accent_temp: ACCENT_TEMP,
+                ok: OK, warn: WARN, crit: CRIT,
+            },
+        }
+    }
+
     pub fn apply(&self, ctx: &egui::Context) {
         let mut fonts = egui::FontDefinitions::default();
         fonts.font_data.insert(
@@ -115,5 +149,4 @@ impl Theme {
 
         ctx.set_style(style);
     }
-
 }

@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use egui::{Color32, Frame, Margin, Rect, RichText, Rounding, Stroke, Vec2, ViewportBuilder, ViewportId};
 
-use crate::{app::CardVisibility, theme::Theme};
+use crate::{app::CardVisibility, theme::{Theme, ThemeId}};
 
 const CLOSE_ID: &str = "about_close_requested";
 
@@ -158,6 +158,20 @@ pub fn show(
                             .custom_formatter(|v, _| format!("{:.0} pt", v))
                             .custom_parser(|s| s.trim_end_matches("pt").trim().parse().ok());
                             if ui.add(slider).changed() { vis.save(); }
+                        }
+
+                        // ── Theme ─────────────────────────────────────────
+                        section(ui, theme, "THEME");
+
+                        if let Ok(mut vis) = card_vis.lock() {
+                            for id in [ThemeId::CoralStorm, ThemeId::CobaltStorm] {
+                                let selected = vis.theme_id == id;
+                                let color = if selected { theme.text_primary } else { body };
+                                if ui.radio(selected, RichText::new(id.label()).color(color).monospace().size(12.0)).clicked() {
+                                    vis.theme_id = id;
+                                    vis.save();
+                                }
+                            }
                         }
 
                         // ── Visible cards ─────────────────────────────────
