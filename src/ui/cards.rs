@@ -40,7 +40,7 @@ pub fn show_grid(
         let val  = compact_fps_val(fps);
         let col  = compact_fps_color(app, fps);
         let sub  = compact_fps_sub(fps);
-        let bar  = if fps.active { Some((fps.fps / 120.0 * 100.0).clamp(0.0, 100.0)) } else { None };
+        let bar  = if fps_gaming(fps) { Some((fps.fps / 120.0 * 100.0).clamp(0.0, 100.0)) } else { None };
         let hist = app.hist_fps.as_vec();
         compact_row(ui, &app.theme, "FPS", app.theme.accent_net, &val, col, fs,
             bar, &sub, &hist, 120.0, None);
@@ -317,23 +317,29 @@ fn compact_mem_sub(snap: &SystemSnapshot) -> String {
     format!("{} / {}", fmt_bytes(snap.memory.used_bytes), fmt_bytes(snap.memory.total_bytes))
 }
 
+// UI apps (editors, browsers) render at 1–5 fps via DXGI and get captured by WGC/ETW.
+// Only treat as a game if fps meets a minimum that no real UI app sustains.
+const MIN_GAME_FPS: f32 = 10.0;
+
+fn fps_gaming(fps: &FpsSnapshot) -> bool {
+    fps.active && fps.fps >= MIN_GAME_FPS
+}
+
 fn compact_fps_val(fps: &FpsSnapshot) -> String {
-    if fps.active { format!("{:.0} fps", fps.fps) } else { "— fps".into() }
+    if fps_gaming(fps) { format!("{:.0} fps", fps.fps) } else { "— fps".into() }
 }
 fn compact_fps_color(app: &MonitorApp, fps: &FpsSnapshot) -> Color32 {
-    if !fps.active          { app.theme.text_subtle }
-    else if fps.fps >= 60.0 { app.theme.accent_net }
-    else if fps.fps >= 30.0 { app.theme.warn }
-    else                    { app.theme.crit }
+    if !fps_gaming(fps)      { app.theme.text_subtle }
+    else if fps.fps >= 60.0  { app.theme.accent_net }
+    else if fps.fps >= 30.0  { app.theme.warn }
+    else                     { app.theme.crit }
 }
 fn compact_fps_sub(fps: &FpsSnapshot) -> String {
-    if fps.active && !fps.window_title.is_empty() {
+    if fps_gaming(fps) && !fps.window_title.is_empty() {
         let t = &fps.window_title;
         if t.chars().count() > 18 { format!("{}…", t.chars().take(17).collect::<String>()) } else { t.clone() }
-    } else if !fps.active {
-        "no game".into()
     } else {
-        String::new()
+        "no game".into()
     }
 }
 

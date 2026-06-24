@@ -265,7 +265,7 @@ impl MonitorApp {
         self.peak_net_rx = self.peak_net_rx.max(snap.network.total_rx_bps as f32);
         if let Some(u) = snap.gpu.utilization_percent { self.peak_gpu  = self.peak_gpu.max(u); }
         if let Some(d) = snap.disks.first()           { self.peak_disk = self.peak_disk.max(d.usage_percent()); }
-        if let Some(t) = snap.temps.cpu_celsius       { self.peak_temp = self.peak_temp.max(t.clamp(0.0, 100.0)); }
+        if let Some(t) = snap.temps.cpu_celsius       { self.peak_temp = self.peak_temp.max(t); }
     }
 
     /// Advance card-collapse animations.

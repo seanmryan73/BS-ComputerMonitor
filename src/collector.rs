@@ -43,8 +43,14 @@ fn run(snapshot: Arc<RwLock<SystemSnapshot>>, card_vis: Arc<Mutex<CardVisibility
     sys.refresh_all();
     thread::sleep(Duration::from_millis(700));
 
+    let mut prev_tick = Instant::now();
+
     loop {
         let tick = Instant::now();
+        // Actual time since last refresh — used for accurate bytes/sec. Clamped to
+        // avoid extreme values on the very first tick or after a system sleep/resume.
+        let actual_secs = tick.duration_since(prev_tick).as_secs_f64().clamp(0.5, 10.0);
+        prev_tick = tick;
 
         sys.refresh_cpu_all();
         sys.refresh_memory();
@@ -59,7 +65,7 @@ fn run(snapshot: Arc<RwLock<SystemSnapshot>>, card_vis: Arc<Mutex<CardVisibility
         #[cfg(not(windows))]
         let (gpu, acpi_cpu_temp) = (GpuSnapshot::default(), None::<f32>);
 
-        let new_snap = build(&sys, &disks, &networks, &components, gpu, acpi_cpu_temp);
+        let new_snap = build(&sys, &disks, &networks, &components, gpu, acpi_cpu_temp, actual_secs);
 
         if let Ok(mut guard) = snapshot.write() {
             *guard = new_snap;
@@ -79,6 +85,7 @@ fn build(
     components: &Components,
     gpu: GpuSnapshot,
     acpi_cpu_temp: Option<f32>,
+    actual_secs: f64,
 ) -> SystemSnapshot {
     // ── CPU ──────────────────────────────────────────────────────────────────
     let cpus = sys.cpus();
@@ -123,7 +130,7 @@ fn build(
         .iter()
         .map(|(name, data)| {
             // sysinfo gives delta bytes since last refresh; convert to bytes/sec.
-            let secs = INTERVAL.as_secs_f64().max(0.001);
+            let secs = actual_secs.max(0.001);
             let rx = (data.received() as f64 / secs) as u64;
             let tx = (data.transmitted() as f64 / secs) as u64;
             total_rx += rx;
@@ -215,6 +222,7 @@ mod gpu_win {
         com:           Option<COMLibrary>,
         conn:          Option<WMIConnection>,
         thermal_conn:  Option<WMIConnection>,
+        lhm_conn:      Option<WMIConnection>,  // LibreHardwareMonitor WMI bridge (optional)
         cached_name:   String,
         pdh:           Option<PdhGpuState>,
         /// Hardware GPU adapters enumerated at startup: (name, dedicated_vram_bytes).
@@ -224,7 +232,7 @@ mod gpu_win {
     impl GpuCollector {
         pub fn new() -> Self {
             let mut col = Self {
-                com: None, conn: None, thermal_conn: None,
+                com: None, conn: None, thermal_conn: None, lhm_conn: None,
                 cached_name: String::new(), pdh: None,
                 adapter_descs: enumerate_dxgi_adapters(),
             };
@@ -235,6 +243,9 @@ mod gpu_win {
                 }
                 if let Ok(tc) = WMIConnection::with_namespace_path("ROOT\\WMI", com) {
                     col.thermal_conn = Some(tc);
+                }
+                if let Ok(lhm) = WMIConnection::with_namespace_path("ROOT\\LibreHardwareMonitor", com) {
+                    col.lhm_conn = Some(lhm);
                 }
                 col.com = Some(com);
             }
@@ -339,7 +350,7 @@ mod gpu_win {
             utilization_percent: utilization,
             vram_used_bytes:     vram_used,
             vram_total_bytes:    vram_total,
-            temperature_celsius: None,
+            temperature_celsius: query_lhm_gpu_temp(col),
             available:           !col.adapter_descs.is_empty() || !col.cached_name.is_empty(),
             available_names,
         };
@@ -378,17 +389,34 @@ mod gpu_win {
             .unwrap_or(0)
     }
 
-    // Reads thermal zone temperatures (Kelvin) and returns the max as Celsius.
-    // Snapshot counter — valid immediately after PdhCollectQueryData, no seeding needed.
+    // Reads thermal zone temperatures (Kelvin) and returns the best CPU estimate.
+    // Prefers zones whose instance name suggests CPU/package; falls back to max of all.
     fn pdh_read_temp(pdh: &PdhGpuState) -> Option<f32> {
         if pdh.temp_counter == 0 { return None; }
         let values = pdh_counter_doubles(pdh.temp_counter)?;
-        values.iter()
-            .filter_map(|(_, k)| {
-                let c = k - 273.15;
-                if c > 0.0 && c < 150.0 { Some(c as f32) } else { None }
-            })
-            .reduce(f32::max)
+
+        let to_celsius = |(name, k): &(String, f64)| -> Option<(bool, f32)> {
+            let c = k - 273.15;
+            if c <= 0.0 || c >= 150.0 { return None; }
+            let is_cpu = ["cpu", "thrm", "tz0", "core", "pkg", "proc"]
+                .iter()
+                .any(|&kw| name.to_ascii_lowercase().contains(kw));
+            Some((is_cpu, c as f32))
+        };
+
+        // Prefer CPU-labelled zones; fall back to max across all zones.
+        let cpu_max = values.iter()
+            .filter_map(|v| to_celsius(v))
+            .filter(|(is_cpu, _)| *is_cpu)
+            .map(|(_, c)| c)
+            .reduce(f32::max);
+
+        cpu_max.or_else(|| {
+            values.iter()
+                .filter_map(|v| to_celsius(v))
+                .map(|(_, c)| c)
+                .reduce(f32::max)
+        })
     }
 
     /// Returns `(instance_name, value)` pairs from the last PdhCollectQueryData.
@@ -456,6 +484,29 @@ mod gpu_win {
             }
             adapters
         }
+    }
+
+    // Query LibreHardwareMonitor WMI bridge for GPU temperature.
+    // Only works when LHM is installed and running as a local service.
+    fn query_lhm_gpu_temp(col: &GpuCollector) -> Option<f32> {
+        let conn = col.lhm_conn.as_ref()?;
+        let rows: Vec<HashMap<String, Variant>> = conn
+            .raw_query("SELECT Value, Identifier FROM Sensor WHERE SensorType='Temperature'")
+            .ok()?;
+        rows.iter()
+            .filter_map(|r| {
+                let id = match r.get("Identifier") {
+                    Some(Variant::String(s)) => s.to_ascii_lowercase(),
+                    _ => return None,
+                };
+                if !id.contains("/gpu") { return None; }
+                match r.get("Value") {
+                    Some(Variant::R4(v)) => Some(*v),
+                    Some(Variant::R8(v)) => Some(*v as f32),
+                    _ => None,
+                }
+            })
+            .reduce(f32::max)
     }
 
     fn query_acpi_cpu_temp(col: &GpuCollector) -> Option<f32> {
