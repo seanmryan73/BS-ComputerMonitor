@@ -40,9 +40,10 @@ pub fn show_grid(
         let val  = compact_fps_val(fps);
         let col  = compact_fps_color(app, fps);
         let sub  = compact_fps_sub(fps);
+        let bar  = if fps.active { Some((fps.fps / 120.0 * 100.0).clamp(0.0, 100.0)) } else { None };
         let hist = app.hist_fps.as_vec();
         compact_row(ui, &app.theme, "FPS", app.theme.accent_net, &val, col, fs,
-            None, &sub, &hist, 120.0, None);
+            bar, &sub, &hist, 120.0, None);
     });
     draw_card_anim(ui, app, 1, |ui, app| {
         let val  = compact_gpu_val(snap);
@@ -80,7 +81,11 @@ pub fn show_grid(
     draw_card_anim(ui, app, 4, |ui, app| {
         let val  = compact_temp_val(snap);
         let col  = compact_temp_color(app, snap);
-        let sub  = compact_temp_sub(snap);
+        let sub  = match snap.temps.gpu_celsius {
+            Some(t) => format!("GPU  {t:.0}°C"),
+            None if snap.temps.cpu_celsius.is_some() => format!("peak  {:.0}°C", app.peak_temp),
+            None => "no sensor".into(),
+        };
         let bar  = snap.temps.cpu_celsius.map(|t| t.clamp(0.0, 100.0));
         let hist = app.hist_temp_cpu.as_vec();
         let peak = snap.temps.cpu_celsius.map(|_| app.peak_temp);
@@ -136,6 +141,7 @@ where
 
 // ── Compact row ───────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn compact_row(
     ui: &mut Ui,
     theme: &crate::theme::Theme,
@@ -372,7 +378,7 @@ fn compact_disk_color(app: &MonitorApp, snap: &SystemSnapshot) -> Color32 {
     snap.disks.first()
         .map(|d| {
             let p = d.usage_percent();
-            if p >= 90.0 { app.theme.crit } else if p >= 75.0 { app.theme.warn } else { app.theme.accent_disk }
+            if p >= 95.0 { app.theme.crit } else if p >= 85.0 { app.theme.warn } else { app.theme.accent_disk }
         })
         .unwrap_or(app.theme.text_subtle)
 }
@@ -391,14 +397,6 @@ fn compact_temp_color(app: &MonitorApp, snap: &SystemSnapshot) -> Color32 {
         .map(|t| if t >= 85.0 { app.theme.crit } else if t >= 70.0 { app.theme.warn } else { app.theme.accent_temp })
         .unwrap_or(app.theme.text_subtle)
 }
-fn compact_temp_sub(snap: &SystemSnapshot) -> String {
-    match snap.temps.gpu_celsius {
-        Some(t) => format!("GPU  {t:.0}°C"),
-        None if snap.temps.cpu_celsius.is_some() => "GPU  —".into(),
-        None => "no sensor".into(),
-    }
-}
-
 fn compact_ping_val(ping: &PingSnapshot) -> String {
     if ping.sample_count == 0 {
         return "— ms".into();
