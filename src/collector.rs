@@ -201,6 +201,7 @@ mod gpu_win {
         query:        isize,
         util_counter: isize,
         vram_counter: isize,
+        temp_counter: isize,  // \Thermal Zone Information(*)\Temperature; 0 = unavailable
     }
     unsafe impl Send for PdhGpuState {}
 
@@ -298,7 +299,13 @@ mod gpu_win {
                 query, PCWSTR(vram_path.as_ptr()), 0, &mut vram_counter,
             ) == 0;
 
-            if !util_ok && !vram_ok {
+            // Thermal zone temperatures — no admin required, snapshot (not rate) counter.
+            let temp_path: Vec<u16> =
+                "\\Thermal Zone Information(*)\\Temperature\0".encode_utf16().collect();
+            let mut temp_counter: isize = 0;
+            PdhAddCounterW(query, PCWSTR(temp_path.as_ptr()), 0, &mut temp_counter);
+
+            if !util_ok && !vram_ok && temp_counter == 0 {
                 PdhCloseQuery(query);
                 return None;
             }
@@ -306,7 +313,7 @@ mod gpu_win {
             // Seed sample — rate counters return 0 until they have two samples.
             PdhCollectQueryData(query);
 
-            Some(PdhGpuState { query, util_counter, vram_counter })
+            Some(PdhGpuState { query, util_counter, vram_counter, temp_counter })
         }
     }
 
@@ -336,7 +343,9 @@ mod gpu_win {
             available:           !col.adapter_descs.is_empty() || !col.cached_name.is_empty(),
             available_names,
         };
-        let cpu_temp = query_acpi_cpu_temp(col);
+        let cpu_temp = col.pdh.as_ref()
+            .and_then(pdh_read_temp)
+            .or_else(|| query_acpi_cpu_temp(col));
         (gpu, cpu_temp)
     }
 
@@ -367,6 +376,19 @@ mod gpu_win {
         pdh_counter_doubles(pdh.vram_counter)
             .and_then(|v| v.into_iter().map(|(_, b)| b as u64).max())
             .unwrap_or(0)
+    }
+
+    // Reads thermal zone temperatures (Kelvin) and returns the max as Celsius.
+    // Snapshot counter — valid immediately after PdhCollectQueryData, no seeding needed.
+    fn pdh_read_temp(pdh: &PdhGpuState) -> Option<f32> {
+        if pdh.temp_counter == 0 { return None; }
+        let values = pdh_counter_doubles(pdh.temp_counter)?;
+        values.iter()
+            .filter_map(|(_, k)| {
+                let c = k - 273.15;
+                if c > 0.0 && c < 150.0 { Some(c as f32) } else { None }
+            })
+            .reduce(f32::max)
     }
 
     /// Returns `(instance_name, value)` pairs from the last PdhCollectQueryData.

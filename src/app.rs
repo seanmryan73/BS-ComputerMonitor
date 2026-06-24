@@ -374,8 +374,17 @@ fn check_elevated() -> bool { true }
 
 impl eframe::App for MonitorApp {
     fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
-        // 60 fps for smooth animation
-        ctx.request_repaint();
+        // Clone card_vis once; use vis_snap for all read-only accesses this frame.
+        let vis_snap = self.card_vis.lock().map(|v| v.clone()).unwrap_or_default();
+
+        // Repaint at 60 fps only while card animations are running or passthrough mode
+        // is armed (needs fast Ctrl-key polling). Otherwise 500 ms is plenty for stats.
+        let any_anim = self.card_anim.scale.iter().any(|&s| s > 0.001 && s < 0.999);
+        if any_anim || vis_snap.passthrough_mode {
+            ctx.request_repaint();
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
 
         // Find the main window HWND once (FindWindowW is reliable on Windows)
         if self.hwnd.is_none() {
@@ -383,7 +392,7 @@ impl eframe::App for MonitorApp {
         }
 
         // Passthrough and pin-on-top are coupled: one implies the other.
-        let passthrough_mode = self.card_vis.lock().map(|v| v.passthrough_mode).unwrap_or(false);
+        let passthrough_mode = vis_snap.passthrough_mode;
         if passthrough_mode != self.prev_passthrough_mode {
             if let Ok(mut v) = self.card_vis.lock() {
                 v.always_on_top = passthrough_mode;
@@ -393,7 +402,7 @@ impl eframe::App for MonitorApp {
 
         // Send WindowLevel command when always_on_top changes; also reset opacity state
         // because SetWindowPos (called by winit) can strip WS_EX_LAYERED.
-        let always_on_top = self.card_vis.lock().map(|v| v.always_on_top).unwrap_or(false);
+        let always_on_top = vis_snap.always_on_top;
         if always_on_top != self.prev_always_on_top {
             self.prev_always_on_top = always_on_top;
             self.applied_opacity = -1.0;
@@ -413,7 +422,7 @@ impl eframe::App for MonitorApp {
             }
         }
 
-        let target_opacity = self.card_vis.lock().map(|v| v.opacity).unwrap_or(1.0);
+        let target_opacity = vis_snap.opacity;
         if let Some(hwnd) = self.hwnd {
             // Re-apply for the first 10 frames (handles window-show timing on startup)
             // and whenever the value actually changes.
@@ -427,9 +436,6 @@ impl eframe::App for MonitorApp {
                 self.opacity_startup_frames += 1;
             }
         }
-
-        // Snapshot card visibility once — used by all resize checks and advance_card_anims.
-        let vis_snap = self.card_vis.lock().map(|v| v.clone()).unwrap_or_default();
 
         // Re-apply egui style when the user switches theme.
         if vis_snap.theme_id != self.prev_theme_id {
@@ -474,7 +480,7 @@ impl eframe::App for MonitorApp {
         }
 
         // Passthrough (game overlay): armed via config, Ctrl held → temporarily interactive
-        let passthrough_armed = self.card_vis.lock().map(|v| v.passthrough_mode).unwrap_or(false);
+        let passthrough_armed = vis_snap.passthrough_mode;
         let want_passthrough = passthrough_armed && !ctrl_held();
         if want_passthrough != self.passthrough_active {
             self.passthrough_active = want_passthrough;
