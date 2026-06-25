@@ -4,17 +4,14 @@
 
 egui/eframe Windows desktop system monitor. Displays CPU, GPU, memory, disk, and network stats as live cards with per-metric accent colours, a ping latency panel, an FPS overlay, and a system tray icon. Metrics from sysinfo (general stats), WMI (hardware temps), ETW (FPS counting), and WGC/DX11 (GPU capture).
 
-## Reference notes (read these for standards)
+## Shared reference notes
 
-- Rust desktop standards: `C:\_repos\Obsidian\Notes\Claude\Reference\Rust-Desktop-Standards.md`
-- Author / version / company: `C:\_repos\Obsidian\Notes\Claude\Reference\Author-Version-Standards.md`
-- Project details: `C:\_repos\Obsidian\Notes\Claude\Projects\BS-ComputerMonitor Claude Context.md`
+@c:\_repos\Obsidian\Notes\Claude\Reference\Author-Version-Standards.md
+@c:\_repos\Obsidian\Notes\Claude\Reference\Rust-Desktop-Standards.md
 
-## Author / version standard
+## Project context
 
-- Author: Sean Ryan <seanmryan@gmail.com>
-- Company: BagPipes
-- Version format: `YYYY.MM.DD`
+@c:\_repos\Obsidian\Notes\Claude\Projects\BS-ComputerMonitor Claude Context.md
 
 ## Pinned dependency versions — do not change without a concrete reason
 
@@ -31,3 +28,14 @@ egui/eframe Windows desktop system monitor. Displays CPU, GPU, memory, disk, and
 - **Console in debug:** `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` — the terminal is visible in debug for `env_logger`. Intentional; do not change.
 - **`windows` + `wmi` must be updated together** — transitive version coupling.
 - **Minimal edits** — prefer targeted changes; do not refactor surrounding code unless the task requires it.
+
+## After this session
+
+When the session ends or the user says to wrap up, update the project context note:
+`c:\_repos\Obsidian\Notes\Claude\Projects\BS-ComputerMonitor Claude Context.md`
+
+Update these sections:
+- **Current constraints** — add any new version pins, banned patterns, or architecture rules discovered
+- **Fix history** — add bugs fixed with root cause (one line each: date · symptom · cause · fix)
+- **Next actions** — replace with the current list
+- **frontmatter `version:`** — set to today's date (YYYY.MM.DD)
