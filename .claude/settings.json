@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "Read(**)",
       "Bash(cargo build*)",
       "Bash(cargo clippy*)",
       "Bash(cargo run*)",
