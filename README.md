@@ -1,4 +1,5 @@
 # BS Computer Monitor
+![CI](https://github.com/seanmryan73/BS-ComputerMonitor/actions/workflows/ci.yml/badge.svg)
 
 A blazing-fast Windows system monitor built in Rust with an egui GPU-accelerated UI.  
 Ported from the C# WPF original at `C:\_repos\ComputerMonitor`.
