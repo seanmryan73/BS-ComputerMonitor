@@ -365,21 +365,32 @@ mod gpu_win {
         let values = pdh_counter_doubles(pdh.util_counter)?;
         if values.is_empty() { return None; }
 
-        // Mirror the C# reference app: SUM all engtype_3D instances (not average).
+        // WDDM instance names: pid_…_luid_…_phys_0_eng_0_engtype_3D
+        // Parse the engtype_ suffix for precise matching instead of substring search.
+        // Sum engtype_3D + engtype_Compute (Blackwell/RTX 50-series may use Compute).
+        // Fall back to excluding known decode/copy engines if neither class is found.
         // GPU Engine instances use the display-adapter LUID, not the physical LUID
         // from DXGI, so filtering by adapter is intentionally skipped here.
-        let mut sum_3d   = 0.0f64;
-        let mut found_3d = false;
-        let mut sum_all  = 0.0f64;
+        fn engtype(name: &str) -> &str {
+            name.rfind("engtype_").map(|i| &name[i + 8..]).unwrap_or("")
+        }
+        const DECODE: &[&str] = &["videodecode", "videoprocessing", "videoencode", "copy"];
+
+        let mut sum_compute    = 0.0f64;
+        let mut found_compute  = false;
+        let mut sum_non_decode = 0.0f64;
         for (name, val) in &values {
-            let v = val.max(0.0);
-            sum_all += v;
-            if name.to_ascii_lowercase().contains("3d") {
-                sum_3d   += v;
-                found_3d  = true;
+            let v  = val.max(0.0);
+            let et = engtype(name).to_ascii_lowercase();
+            if et == "3d" || et == "compute" {
+                sum_compute   += v;
+                found_compute  = true;
+            }
+            if !DECODE.contains(&et.as_str()) {
+                sum_non_decode += v;
             }
         }
-        let raw = if found_3d { sum_3d } else { sum_all };
+        let raw = if found_compute { sum_compute } else { sum_non_decode };
         Some(raw.min(100.0) as f32)
     }
 

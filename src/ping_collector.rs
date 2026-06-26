@@ -1,8 +1,8 @@
 //! Background latency-measurement thread.
 //!
-//! Sends ICMP echo requests to 1.1.1.1 (Cloudflare DNS) every 5 seconds using
-//! the Windows IcmpSendEcho API (no admin rights required).  Writes a rolling
-//! [`PingSnapshot`] into the shared `Arc<RwLock<_>>`.
+//! Sends ICMP echo requests to a user-configurable target (default 1.1.1.1) every
+//! 5 seconds using the Windows IcmpSendEcho API (no admin rights required).
+//! Writes a rolling [`PingSnapshot`] into the shared `Arc<RwLock<_>>`.
 
 use std::{
     collections::VecDeque,
@@ -13,20 +13,18 @@ use std::{
 
 use crate::models::PingSnapshot;
 
-// 1.1.1.1 — same u32 in any byte order since all octets are identical.
-const TARGET_IP: u32 = 0x0101_0101;
 const TIMEOUT_MS: u32 = 3_000;
 pub const INTERVAL: Duration = Duration::from_secs(5);
 const SAMPLES: usize = 12; // 1 minute of history at 5 s cadence
 
-pub fn start(snapshot: Arc<RwLock<PingSnapshot>>) {
+pub fn start(snapshot: Arc<RwLock<PingSnapshot>>, target: Arc<RwLock<String>>) {
     thread::Builder::new()
         .name("ping".into())
-        .spawn(move || run(snapshot))
+        .spawn(move || run(snapshot, target))
         .expect("failed to spawn ping thread");
 }
 
-fn run(snapshot: Arc<RwLock<PingSnapshot>>) {
+fn run(snapshot: Arc<RwLock<PingSnapshot>>, target: Arc<RwLock<String>>) {
     #[cfg(windows)]
     {
         use windows::Win32::NetworkManagement::IpHelper::IcmpCreateFile;
@@ -34,29 +32,59 @@ fn run(snapshot: Arc<RwLock<PingSnapshot>>) {
             Ok(h) if !h.is_invalid() => h,
             _ => return,
         };
-        run_loop(snapshot, handle);
+        run_loop(snapshot, handle, target);
     }
 
     #[cfg(not(windows))]
     {
         // No ICMP support on non-Windows; thread stays alive but never updates.
+        let _ = target;
         loop {
             thread::sleep(Duration::from_secs(60));
         }
     }
 }
 
+/// Resolve a hostname or dotted-decimal IPv4 string to a u32 in the byte order
+/// that IcmpSendEcho expects (native-endian, first octet at byte 0 in memory).
+fn resolve_ipv4(host: &str) -> Option<u32> {
+    use std::net::{IpAddr, ToSocketAddrs};
+    let h = host.trim();
+    if let Ok(ip) = h.parse::<std::net::Ipv4Addr>() {
+        return Some(u32::from_le_bytes(ip.octets()));
+    }
+    // DNS resolution — append :0 for the SocketAddr parser
+    format!("{h}:0").to_socket_addrs().ok()?
+        .find(|a| a.is_ipv4())
+        .and_then(|a| if let IpAddr::V4(v4) = a.ip() {
+            Some(u32::from_le_bytes(v4.octets()))
+        } else {
+            None
+        })
+}
+
 #[cfg(windows)]
 fn run_loop(
     snapshot: Arc<RwLock<PingSnapshot>>,
     handle: windows::Win32::Foundation::HANDLE,
+    target: Arc<RwLock<String>>,
 ) {
     let mut history: VecDeque<Option<u32>> = VecDeque::with_capacity(SAMPLES);
+    let mut last_target = String::new();
 
     loop {
         let tick = Instant::now();
 
-        let latency = unsafe { ping_icmp(handle) };
+        let current_target = target.read().map(|g| g.clone()).unwrap_or_else(|_| "1.1.1.1".into());
+
+        // Clear history when the user changes the ping target so stale data doesn't mix.
+        if current_target != last_target {
+            history.clear();
+            last_target = current_target.clone();
+        }
+
+        let target_ip = resolve_ipv4(&current_target);
+        let latency = target_ip.map(|ip| unsafe { ping_icmp(handle, ip) }).flatten();
 
         if history.len() >= SAMPLES {
             history.pop_front();
@@ -76,7 +104,7 @@ fn run_loop(
 }
 
 #[cfg(windows)]
-unsafe fn ping_icmp(handle: windows::Win32::Foundation::HANDLE) -> Option<u32> {
+unsafe fn ping_icmp(handle: windows::Win32::Foundation::HANDLE, target_ip: u32) -> Option<u32> {
     use windows::Win32::NetworkManagement::IpHelper::{IcmpSendEcho, ICMP_ECHO_REPLY};
 
     let request = [0u8; 32];
@@ -85,7 +113,7 @@ unsafe fn ping_icmp(handle: windows::Win32::Foundation::HANDLE) -> Option<u32> {
 
     let count = IcmpSendEcho(
         handle,
-        TARGET_IP,
+        target_ip,
         request.as_ptr() as *const _,
         request.len() as u16,
         None,

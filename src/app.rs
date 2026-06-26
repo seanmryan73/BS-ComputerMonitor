@@ -45,12 +45,15 @@ pub struct CardVisibility {
     pub net_cap_mbps: f32,
     #[serde(default)]
     pub theme_id: ThemeId,
+    #[serde(default = "default_ping_target")]
+    pub ping_target: String,
 }
 
 fn default_opacity() -> f32 { 1.0 }
 fn default_compact_font_size() -> f32 { 22.0 }
 fn default_net_cap_mbps() -> f32 { 1000.0 }
 fn default_true() -> bool { true }
+fn default_ping_target() -> String { "1.1.1.1".into() }
 
 /// Per-card collapse animation state for the 6 optional cards [fps, gpu, net, disk, temp, ping].
 pub struct CardAnim {
@@ -89,6 +92,7 @@ impl Default for CardVisibility {
             selected_gpu_index: 0,
             net_cap_mbps: 1000.0,
             theme_id: ThemeId::CoralStorm,
+            ping_target: "1.1.1.1".into(),
         }
     }
 }
@@ -117,6 +121,7 @@ pub struct MonitorApp {
     snapshot: Arc<RwLock<SystemSnapshot>>,
     pub fps:  Arc<RwLock<FpsSnapshot>>,
     pub ping: Arc<RwLock<PingSnapshot>>,
+    pub ping_target_shared: Arc<RwLock<String>>,
     pub theme: Theme,
 
     pub hist_cpu: MetricHistory,
@@ -177,9 +182,10 @@ impl MonitorApp {
         fps_collector::start(Arc::clone(&fps));
 
         let ping = Arc::new(RwLock::new(PingSnapshot::default()));
-        ping_collector::start(Arc::clone(&ping));
 
         let vis_init = CardVisibility::load();
+        let ping_target_shared = Arc::new(RwLock::new(vis_init.ping_target.clone()));
+        ping_collector::start(Arc::clone(&ping), Arc::clone(&ping_target_shared));
         let card_anim_init  = CardAnim::new(&vis_init);
         let prev_shown_init = [
             vis_init.show_fps, vis_init.show_gpu, vis_init.show_net,
@@ -195,6 +201,7 @@ impl MonitorApp {
             snapshot,
             fps,
             ping,
+            ping_target_shared,
             theme,
             hist_cpu: MetricHistory::new(HISTORY_LEN),
             hist_mem: MetricHistory::new(HISTORY_LEN),
@@ -376,6 +383,13 @@ impl eframe::App for MonitorApp {
     fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
         // Clone card_vis once; use vis_snap for all read-only accesses this frame.
         let vis_snap = self.card_vis.lock().map(|v| v.clone()).unwrap_or_default();
+
+        // Sync ping target into the shared Arc so the ping thread picks up changes.
+        if let Ok(mut t) = self.ping_target_shared.write() {
+            if *t != vis_snap.ping_target {
+                *t = vis_snap.ping_target.clone();
+            }
+        }
 
         // Repaint at 60 fps only while card animations are running or passthrough mode
         // is armed (needs fast Ctrl-key polling). Otherwise 500 ms is plenty for stats.

@@ -295,6 +295,29 @@ pub fn show(
                             if (vis.net_cap_mbps - prev).abs() > 0.1 { vis.save(); }
                         }
 
+                        // ── Ping Target ──────────────────────────────────
+                        section(ui, theme, "PING TARGET");
+
+                        ui.label(
+                            RichText::new("Hostname or IP to ping (e.g. 8.8.8.8, router)")
+                                .color(hint)
+                                .monospace()
+                                .size(10.5),
+                        );
+                        ui.add_space(4.0);
+
+                        if let Ok(mut vis) = card_vis.lock() {
+                            let prev = vis.ping_target.clone();
+                            let resp = ui.add(
+                                egui::TextEdit::singleline(&mut vis.ping_target)
+                                    .font(egui::TextStyle::Monospace)
+                                    .desired_width(ui.available_width() - 8.0),
+                            );
+                            if resp.lost_focus() && vis.ping_target != prev {
+                                vis.save();
+                            }
+                        }
+
                         // ── Window ────────────────────────────────────────
                         section(ui, theme, "WINDOW");
 
