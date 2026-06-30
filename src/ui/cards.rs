@@ -40,7 +40,10 @@ pub fn show_grid(
         let val  = compact_fps_val(fps);
         let col  = compact_fps_color(app, fps);
         let sub  = compact_fps_sub(fps);
-        let bar  = if fps_gaming(fps) { Some((fps.fps / 120.0 * 100.0).clamp(0.0, 100.0)) } else { None };
+        // Always reserve bar space (0% when idle) so the row height never
+        // changes as fps_gaming() flickers — that was making the cards
+        // below FPS visibly bounce.
+        let bar  = Some(if fps_gaming(fps) { (fps.fps / 120.0 * 100.0).clamp(0.0, 100.0) } else { 0.0 });
         let hist = app.hist_fps.as_vec();
         compact_row(ui, &app.theme, "FPS", app.theme.accent_net, &val, col, fs,
             bar, &sub, &hist, 120.0, None);
