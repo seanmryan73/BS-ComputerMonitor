@@ -66,40 +66,8 @@ impl TrayHandle {
     }
 }
 
-/// Generates the same 32×32 "BS" bitmap used for the window icon.
+/// Generates the same 32×32 "BC" bitmap used for the window icon.
 fn build_icon() -> Option<tray_icon::Icon> {
-    const W: u32 = 32;
-    const H: u32 = 32;
-    let mut rgba = vec![0u8; (W * H * 4) as usize];
-    let bg = [0x07u8, 0x07, 0x0B, 0xFF];
-    let fg = [0xFFu8, 0x14, 0x93, 0xFF]; // neon pink accent
-    for c in rgba.chunks_exact_mut(4) { c.copy_from_slice(&bg); }
-
-    const B: [[u8; 5]; 7] = [
-        [1,1,1,1,0], [1,0,0,0,1], [1,0,0,0,1],
-        [1,1,1,1,0], [1,0,0,0,1], [1,0,0,0,1], [1,1,1,1,0],
-    ];
-    const C: [[u8; 5]; 7] = [
-        [0,1,1,1,0], [1,0,0,0,0], [1,0,0,0,0],
-        [1,0,0,0,0], [1,0,0,0,0], [1,0,0,0,0], [0,1,1,1,0],
-    ];
-
-    for (glyph, x0) in [(&B as &[[u8; 5]; 7], 3usize), (&C, 16)] {
-        for (row, bits) in glyph.iter().enumerate() {
-            for (col, &on) in bits.iter().enumerate() {
-                if on == 0 { continue; }
-                for dy in 0..2usize {
-                    for dx in 0..2usize {
-                        let (px, py) = (x0 + col * 2 + dx, 9 + row * 2 + dy);
-                        if px < W as usize && py < H as usize {
-                            let i = (py * W as usize + px) * 4;
-                            rgba[i..i + 4].copy_from_slice(&fg);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    tray_icon::Icon::from_rgba(rgba, W, H).ok()
+    const SIZE: u32 = 32;
+    tray_icon::Icon::from_rgba(crate::icon_art::draw_icon_rgba(SIZE), SIZE, SIZE).ok()
 }
