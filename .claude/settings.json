@@ -13,15 +13,10 @@
       "Bash(git diff*)",
       "Bash(git log*)",
       "Bash(cargo build *)",
-      "Read(//c/_repos/BS-VChanger-Rust/**)",
       "Bash(cargo clippy *)",
       "Read(//c/_repos/Obsidian/Notes/Claude/Reference/**)"
     ],
     "additionalDirectories": [
-      "C:\\_repos\\BS-VChanger-Rust\\src",
-      "C:\\_repos\\BS-VChanger-Rust",
-      "C:\\_repos\\BS-VChop-Rust\\src",
-      "C:\\_repos\\BS-VChop-Rust",
       "c:\\_repos\\Obsidian\\Notes\\Claude\\Reference"
     ]
   }
