@@ -226,7 +226,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sysinfo",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tray-icon",
  "windows 0.57.0",
  "winresource",
