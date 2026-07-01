@@ -84,11 +84,14 @@ pub fn show(
                                 .size(11.0),
                         );
                         ui.add_space(10.0);
-                        row(ui, theme, body, "AUTHOR",   "seanmryan@gmail.com");
+                        row(ui, theme, body, "AUTHOR",   "Sean Ryan");
+                        row(ui, theme, body, "CONTACT",  "seanmryan@gmail.com");
                         row(ui, theme, body, "COMPANY",  "BagPipes");
                         ui.add_space(2.0);
                         row(ui, theme, body, "RUNTIME",  "Rust · egui 0.29 · eframe 0.29");
                         row(ui, theme, body, "PLATFORM", "Windows · x86_64");
+                        ui.add_space(2.0);
+                        row_link(ui, theme, body, "DONATE", "Support on Ko-fi", "https://ko-fi.com/bagofpipes");
 
                         // ── Theme ─────────────────────────────────────────
                         section(ui, theme, "THEME");
@@ -511,6 +514,24 @@ fn row(ui: &mut egui::Ui, theme: Theme, body: Color32, label: &str, value: &str)
                 .color(theme.text_primary)
                 .monospace()
                 .size(11.5),
+        );
+    });
+}
+
+fn row_link(ui: &mut egui::Ui, theme: Theme, body: Color32, label: &str, link_text: &str, url: &str) {
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new(format!("{:<10}", label))
+                .color(body)
+                .monospace()
+                .size(11.5),
+        );
+        ui.hyperlink_to(
+            RichText::new(link_text)
+                .color(theme.accent_cpu)
+                .monospace()
+                .size(11.5),
+            url,
         );
     });
 }
