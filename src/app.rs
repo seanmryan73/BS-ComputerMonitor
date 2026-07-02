@@ -100,10 +100,13 @@ impl Default for CardVisibility {
 impl CardVisibility {
     pub fn load() -> Self {
         let path = config_path();
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+        // A missing file is normal (first run); a parse failure means the file is
+        // corrupt — warn so the user knows why their settings reset.
+        let Ok(s) = std::fs::read_to_string(&path) else { return Self::default() };
+        serde_json::from_str(&s).unwrap_or_else(|e| {
+            log::warn!("failed to parse {}: {e}; resetting to defaults", path.display());
+            Self::default()
+        })
     }
 
     pub fn save(&self) {
@@ -168,6 +171,9 @@ pub struct MonitorApp {
 
     #[cfg(windows)]
     tray: Option<crate::tray::TrayHandle>,
+    /// Last tooltip pushed to the tray icon — avoids a Shell_NotifyIcon call per frame.
+    #[cfg(windows)]
+    last_tray_tip: String,
 }
 
 impl MonitorApp {
@@ -239,6 +245,8 @@ impl MonitorApp {
             peak_net_rx: 0.0,
             #[cfg(windows)]
             tray: crate::tray::TrayHandle::build(),
+            #[cfg(windows)]
+            last_tray_tip: String::new(),
         }
     }
 
@@ -246,24 +254,25 @@ impl MonitorApp {
         let is_first = self.first_tick;
         if is_first { self.first_tick = false; }
 
+        // Every history gets exactly one sample per tick so all sparklines share
+        // the same 2 s timebase; missing readings push 0 instead of being skipped.
         let n = if is_first { HISTORY_LEN } else { 1 };
         for _ in 0..n {
             self.hist_cpu.push(snap.cpu.total_usage);
             self.hist_mem.push(snap.memory.usage_percent());
             self.hist_rx.push(snap.network.total_rx_bps as f32);
-            if let Some(u) = snap.gpu.utilization_percent {
-                self.hist_gpu.push(u);
-            }
+            self.hist_gpu.push(snap.gpu.utilization_percent.unwrap_or(0.0));
             self.hist_fps.push(if fps_snap.active { fps_snap.fps } else { 0.0 });
-            if let Some(t) = snap.temps.cpu_celsius {
-                self.hist_temp_cpu.push(t);
-            }
-            if let Some(d) = snap.disks.first() {
-                self.hist_disk.push(d.usage_percent());
-            }
-            if let Some(ms) = ping_snap.latency_ms {
-                self.hist_ping.push(ms as f32);
-            }
+            self.hist_temp_cpu.push(snap.temps.cpu_celsius.unwrap_or(0.0));
+            self.hist_disk.push(snap.disks.first().map(|d| d.usage_percent()).unwrap_or(0.0));
+            // Ping timeouts peg the 0–200 ms gauge ceiling so they read as spikes,
+            // not as excellent latency.
+            let ping_val = if ping_snap.sample_count == 0 {
+                0.0
+            } else {
+                ping_snap.latency_ms.map(|ms| ms as f32).unwrap_or(200.0)
+            };
+            self.hist_ping.push(ping_val);
         }
 
         // Update session peaks
@@ -515,11 +524,15 @@ impl eframe::App for MonitorApp {
                     .map(|g| format!("  ·  GPU {:.0}%", g))
                     .unwrap_or_default(),
             );
-            tray.set_tooltip(&tip);
+            if tip != self.last_tray_tip {
+                tray.set_tooltip(&tip);
+                self.last_tray_tip = tip;
+            }
             while let Ok(cmd) = tray.rx.try_recv() {
                 match cmd {
                     crate::tray::TrayCmd::ShowWindow => {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                     }
                     crate::tray::TrayCmd::Exit => {
@@ -539,5 +552,10 @@ impl eframe::App for MonitorApp {
         self.advance_card_anims(dt, &vis_snap);
 
         ui::draw(self, ctx, frame, &snap, &fps_snap, &ping_snap);
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // Stop the ETW trace session — it is a kernel object that outlives the process.
+        crate::fps_collector::shutdown();
     }
 }

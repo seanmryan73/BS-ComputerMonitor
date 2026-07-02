@@ -47,9 +47,13 @@ fn run(snapshot: Arc<RwLock<SystemSnapshot>>, card_vis: Arc<Mutex<CardVisibility
 
     loop {
         let tick = Instant::now();
-        // Actual time since last refresh — used for accurate bytes/sec. Clamped to
-        // avoid extreme values on the very first tick or after a system sleep/resume.
-        let actual_secs = tick.duration_since(prev_tick).as_secs_f64().clamp(0.5, 10.0);
+        // Actual time since last refresh — used for accurate bytes/sec. A gap far
+        // beyond the interval means the machine slept: sysinfo's byte deltas then
+        // cover the whole gap, so the rates from this tick are discarded instead
+        // of spiking the history and session peak.
+        let raw_secs = tick.duration_since(prev_tick).as_secs_f64();
+        let discard_rates = raw_secs > INTERVAL.as_secs_f64() * 2.0;
+        let actual_secs = raw_secs.clamp(0.5, 10.0);
         prev_tick = tick;
 
         sys.refresh_cpu_all();
@@ -65,7 +69,7 @@ fn run(snapshot: Arc<RwLock<SystemSnapshot>>, card_vis: Arc<Mutex<CardVisibility
         #[cfg(not(windows))]
         let (gpu, acpi_cpu_temp) = (GpuSnapshot::default(), None::<f32>);
 
-        let new_snap = build(&sys, &disks, &networks, &components, gpu, acpi_cpu_temp, actual_secs);
+        let new_snap = build(&sys, &disks, &networks, &components, gpu, acpi_cpu_temp, actual_secs, discard_rates);
 
         if let Ok(mut guard) = snapshot.write() {
             *guard = new_snap;
@@ -78,6 +82,7 @@ fn run(snapshot: Arc<RwLock<SystemSnapshot>>, card_vis: Arc<Mutex<CardVisibility
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build(
     sys: &System,
     disks: &Disks,
@@ -86,6 +91,7 @@ fn build(
     gpu: GpuSnapshot,
     acpi_cpu_temp: Option<f32>,
     actual_secs: f64,
+    discard_rates: bool,
 ) -> SystemSnapshot {
     // ── CPU ──────────────────────────────────────────────────────────────────
     let cpus = sys.cpus();
@@ -131,8 +137,14 @@ fn build(
         .map(|(name, data)| {
             // sysinfo gives delta bytes since last refresh; convert to bytes/sec.
             let secs = actual_secs.max(0.001);
-            let rx = (data.received() as f64 / secs) as u64;
-            let tx = (data.transmitted() as f64 / secs) as u64;
+            let (rx, tx) = if discard_rates {
+                (0, 0)
+            } else {
+                (
+                    (data.received() as f64 / secs) as u64,
+                    (data.transmitted() as f64 / secs) as u64,
+                )
+            };
             total_rx += rx;
             total_tx += tx;
             NetInterface {
@@ -225,8 +237,11 @@ mod gpu_win {
         lhm_conn:      Option<WMIConnection>,  // LibreHardwareMonitor WMI bridge (optional)
         cached_name:   String,
         pdh:           Option<PdhGpuState>,
-        /// Hardware GPU adapters enumerated at startup: (name, dedicated_vram_bytes).
-        adapter_descs: Vec<(String, u64)>,
+        /// Hardware GPU adapters enumerated at startup:
+        /// (name, dedicated_vram_bytes, pdh_luid_key).
+        /// `pdh_luid_key` is the lowercase "luid_0x…_0x…" fragment that PDH GPU
+        /// counter instance names embed for this adapter.
+        adapter_descs: Vec<(String, u64, String)>,
     }
 
     impl GpuCollector {
@@ -334,16 +349,19 @@ mod gpu_win {
             unsafe { PdhCollectQueryData(pdh.query); }
         }
 
-        let utilization = col.pdh.as_ref().and_then(pdh_read_util);
-        let vram_used   = col.pdh.as_ref().map_or(0, pdh_read_vram_used);
-
         // Clamp selected index to valid range in case saved config has stale value.
         let clamped = selected_index.min(col.adapter_descs.len().saturating_sub(1));
-        let (name, vram_total) = col.adapter_descs.get(clamped)
-            .map(|(n, v)| (n.clone(), *v))
-            .unwrap_or_else(|| (col.cached_name.clone(), 0));
+        let (name, vram_total, luid) = col.adapter_descs.get(clamped)
+            .map(|(n, v, l)| (n.clone(), *v, Some(l.as_str())))
+            .unwrap_or((col.cached_name.clone(), 0, None));
 
-        let available_names: Vec<String> = col.adapter_descs.iter().map(|(n, _)| n.clone()).collect();
+        // Filter utilization/VRAM to the selected adapter so multi-GPU numbers
+        // match the name/VRAM-total shown; both fall back to all adapters when
+        // the LUID doesn't appear in the counter instances.
+        let utilization = col.pdh.as_ref().and_then(|p| pdh_read_util(p, luid));
+        let vram_used   = col.pdh.as_ref().map_or(0, |p| pdh_read_vram_used(p, luid));
+
+        let available_names: Vec<String> = col.adapter_descs.iter().map(|(n, _, _)| n.clone()).collect();
 
         let gpu = GpuSnapshot {
             name:                if !name.is_empty() { name } else { col.cached_name.clone() },
@@ -360,7 +378,7 @@ mod gpu_win {
         (gpu, cpu_temp)
     }
 
-    fn pdh_read_util(pdh: &PdhGpuState) -> Option<f32> {
+    fn pdh_read_util(pdh: &PdhGpuState, luid: Option<&str>) -> Option<f32> {
         if pdh.util_counter == 0 { return None; }
         let values = pdh_counter_doubles(pdh.util_counter)?;
         if values.is_empty() { return None; }
@@ -369,17 +387,28 @@ mod gpu_win {
         // Parse the engtype_ suffix for precise matching instead of substring search.
         // Sum engtype_3D + engtype_Compute (Blackwell/RTX 50-series may use Compute).
         // Fall back to excluding known decode/copy engines if neither class is found.
-        // GPU Engine instances use the display-adapter LUID, not the physical LUID
-        // from DXGI, so filtering by adapter is intentionally skipped here.
         fn engtype(name: &str) -> &str {
             name.rfind("engtype_").map(|i| &name[i + 8..]).unwrap_or("")
         }
         const DECODE: &[&str] = &["videodecode", "videoprocessing", "videoencode", "copy"];
 
+        // Restrict to the selected adapter's engines when its LUID matches any
+        // instance. GPU Engine names may carry the display-adapter LUID rather
+        // than DXGI's physical LUID, so when nothing matches use all instances
+        // (the pre-filter behavior) instead of reporting 0%.
+        let use_filter = luid.is_some_and(|l| {
+            values.iter().any(|(n, _)| n.to_ascii_lowercase().contains(l))
+        });
+
         let mut sum_compute    = 0.0f64;
         let mut found_compute  = false;
         let mut sum_non_decode = 0.0f64;
         for (name, val) in &values {
+            if use_filter {
+                if let Some(l) = luid {
+                    if !name.to_ascii_lowercase().contains(l) { continue; }
+                }
+            }
             let v  = val.max(0.0);
             let et = engtype(name).to_ascii_lowercase();
             if et == "3d" || et == "compute" {
@@ -394,10 +423,17 @@ mod gpu_win {
         Some(raw.min(100.0) as f32)
     }
 
-    fn pdh_read_vram_used(pdh: &PdhGpuState) -> u64 {
-        pdh_counter_doubles(pdh.vram_counter)
-            .and_then(|v| v.into_iter().map(|(_, b)| b as u64).max())
-            .unwrap_or(0)
+    fn pdh_read_vram_used(pdh: &PdhGpuState, luid: Option<&str>) -> u64 {
+        let Some(values) = pdh_counter_doubles(pdh.vram_counter) else { return 0 };
+        // Prefer the selected adapter's instance; fall back to the max across
+        // all adapters when the LUID doesn't match any instance name.
+        let matched = luid.and_then(|l| {
+            values.iter()
+                .filter(|(n, _)| n.to_ascii_lowercase().contains(l))
+                .map(|(_, b)| *b as u64)
+                .max()
+        });
+        matched.unwrap_or_else(|| values.iter().map(|(_, b)| *b as u64).max().unwrap_or(0))
     }
 
     // Reads thermal zone temperatures (Kelvin) and returns the best CPU estimate.
@@ -471,8 +507,9 @@ mod gpu_win {
         String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len))
     }
 
-    /// Enumerate all hardware GPU adapters via DXGI, returning (name, dedicated_vram_bytes).
-    fn enumerate_dxgi_adapters() -> Vec<(String, u64)> {
+    /// Enumerate all hardware GPU adapters via DXGI, returning
+    /// (name, dedicated_vram_bytes, pdh_luid_key).
+    fn enumerate_dxgi_adapters() -> Vec<(String, u64, String)> {
         use windows::Win32::Graphics::Dxgi::{
             CreateDXGIFactory1, IDXGIFactory1, DXGI_ADAPTER_DESC1,
         };
@@ -491,7 +528,14 @@ mod gpu_win {
                 if (desc.Flags & SW_FLAG) != 0 { continue; }
                 let end = desc.Description.iter().position(|&c| c == 0).unwrap_or(128);
                 let name = String::from_utf16_lossy(&desc.Description[..end]);
-                adapters.push((name, desc.DedicatedVideoMemory as u64));
+                // PDH GPU counter instances embed the LUID as
+                // "luid_0x<HighPart>_0x<LowPart>"; lowercase to match against
+                // lowercased instance names.
+                let luid_key = format!(
+                    "luid_0x{:08x}_0x{:08x}",
+                    desc.AdapterLuid.HighPart as u32, desc.AdapterLuid.LowPart,
+                );
+                adapters.push((name, desc.DedicatedVideoMemory as u64, luid_key));
             }
             adapters
         }

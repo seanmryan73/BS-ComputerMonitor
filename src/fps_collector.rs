@@ -6,6 +6,13 @@ use std::thread;
 
 use crate::models::FpsSnapshot;
 
+/// Stop the ETW trace session on app exit. The session is a kernel object that
+/// outlives the process — without this it keeps tracing system-wide until the
+/// next launch (or reboot).
+pub fn shutdown() {
+    inner::shutdown();
+}
+
 pub fn start(fps: Arc<RwLock<FpsSnapshot>>) {
     thread::Builder::new()
         .name("fps-collector".into())
@@ -368,6 +375,16 @@ mod inner {
         title: String,
     }
 
+    impl Drop for WgcSession {
+        fn drop(&mut self) {
+            // Explicitly end the capture — dropping only releases COM refs;
+            // Close() is the documented way to stop the session promptly.
+            let _ = self._pool.RemoveFrameArrived(self._token);
+            let _ = self._wgc.Close();
+            let _ = self._pool.Close();
+        }
+    }
+
     fn run_wgc(shared: Arc<RwLock<FpsSnapshot>>) -> anyhow::Result<()> {
         let d3d = wgc_device()?;
         let mut active: Option<WgcSession> = None;
@@ -487,6 +504,10 @@ mod inner {
 
     // ── Entry point ───────────────────────────────────────────────────────────
 
+    pub fn shutdown() {
+        kill_session();
+    }
+
     pub fn run(shared: Arc<RwLock<FpsSnapshot>>) -> anyhow::Result<()> {
         match run_etw(Arc::clone(&shared)) {
             Ok(()) => Ok(()),
@@ -507,4 +528,5 @@ mod inner {
     pub fn run(_: Arc<RwLock<FpsSnapshot>>) -> anyhow::Result<()> {
         Ok(())
     }
+    pub fn shutdown() {}
 }

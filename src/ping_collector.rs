@@ -30,7 +30,13 @@ fn run(snapshot: Arc<RwLock<PingSnapshot>>, target: Arc<RwLock<String>>) {
         use windows::Win32::NetworkManagement::IpHelper::IcmpCreateFile;
         let handle = match unsafe { IcmpCreateFile() } {
             Ok(h) if !h.is_invalid() => h,
-            _ => return,
+            _ => {
+                log::warn!("IcmpCreateFile failed — ping card disabled");
+                if let Ok(mut g) = snapshot.write() {
+                    g.unavailable = true;
+                }
+                return;
+            }
         };
         run_loop(snapshot, handle, target);
     }
@@ -71,6 +77,7 @@ fn run_loop(
 ) {
     let mut history: VecDeque<Option<u32>> = VecDeque::with_capacity(SAMPLES);
     let mut last_target = String::new();
+    let mut cached_ip: Option<u32> = None;
 
     loop {
         let tick = Instant::now();
@@ -80,11 +87,19 @@ fn run_loop(
         // Clear history when the user changes the ping target so stale data doesn't mix.
         if current_target != last_target {
             history.clear();
+            cached_ip = None;
             last_target = current_target.clone();
         }
 
-        let target_ip = resolve_ipv4(&current_target);
-        let latency = target_ip.map(|ip| unsafe { ping_icmp(handle, ip) }).flatten();
+        // Resolve once and cache — a blocking DNS lookup every cycle is wasteful.
+        if cached_ip.is_none() {
+            cached_ip = resolve_ipv4(&current_target);
+        }
+        let latency = cached_ip.and_then(|ip| unsafe { ping_icmp(handle, ip) });
+        // Re-resolve after a failure — the host may have changed address.
+        if latency.is_none() {
+            cached_ip = None;
+        }
 
         if history.len() >= SAMPLES {
             history.pop_front();
@@ -166,5 +181,6 @@ fn compute(history: &VecDeque<Option<u32>>) -> PingSnapshot {
         jitter_ms,
         loss_pct,
         sample_count: total,
+        unavailable: false,
     }
 }

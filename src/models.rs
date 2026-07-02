@@ -122,6 +122,9 @@ pub struct PingSnapshot {
     pub loss_pct: f32,
     /// Number of samples collected so far (0 = warmup, not yet measured).
     pub sample_count: usize,
+    /// True when ICMP is unavailable on this system (IcmpCreateFile failed) —
+    /// the card shows "n/a" instead of waiting for samples forever.
+    pub unavailable: bool,
 }
 
 // ── FPS ───────────────────────────────────────────────────────────────────────
@@ -180,11 +183,11 @@ pub fn fmt_bytes(bytes: u64) -> String {
     const MIB: u64 = 1024 * 1024;
     const KIB: u64 = 1024;
     if bytes >= GIB {
-        format!("{:.1} GB", bytes as f64 / GIB as f64)
+        format!("{:.1} GiB", bytes as f64 / GIB as f64)
     } else if bytes >= MIB {
-        format!("{:.0} MB", bytes as f64 / MIB as f64)
+        format!("{:.0} MiB", bytes as f64 / MIB as f64)
     } else if bytes >= KIB {
-        format!("{:.0} KB", bytes as f64 / KIB as f64)
+        format!("{:.0} KiB", bytes as f64 / KIB as f64)
     } else {
         format!("{bytes} B")
     }

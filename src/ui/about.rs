@@ -8,6 +8,16 @@ use crate::{app::CardVisibility, theme::{Theme, ThemeId}};
 
 const CLOSE_ID: &str = "about_close_requested";
 
+/// Display version derived from Cargo.toml so the two can't drift. Cargo
+/// rejects leading zeros in semver, so zero-pad month/day here (YYYY.MM.DD).
+fn version_string() -> String {
+    let mut parts = env!("CARGO_PKG_VERSION").split('.');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(y), Some(m), Some(d)) => format!("v{y}.{m:0>2}.{d:0>2}"),
+        _ => format!("v{}", env!("CARGO_PKG_VERSION")),
+    }
+}
+
 // Panel background — slightly lighter than the main app bg for visual separation.
 const PANEL_BG: Color32 = Color32::from_rgb(0x0C, 0x0C, 0x16);
 
@@ -51,12 +61,6 @@ pub fn show(
                 ctx.data_mut(|d| d.insert_temp(egui::Id::new(CLOSE_ID), true));
             }
 
-            // Inherit the full theme widget styles — don't wipe them with a bare dark() visuals.
-            let mut vis = ctx.style().visuals.clone();
-            vis.panel_fill = PANEL_BG;
-            vis.selection.bg_fill = theme.accent_cpu;
-            ctx.set_visuals(vis);
-
             // Text levels used in this panel.
             // body  — readable secondary text (~65% white), replaces the near-invisible text_subtle
             // hint  — tertiary / disabled labels, uses text_subtle (not text_dim which is invisible)
@@ -66,6 +70,9 @@ pub fn show(
             egui::CentralPanel::default()
                 .frame(Frame::none().fill(PANEL_BG).inner_margin(Margin::same(18.0)))
                 .show(ctx, |ui| {
+                    // Scoped to this panel — ctx.set_visuals would leak into the
+                    // main window's shared Context and linger after close.
+                    ui.style_mut().visuals.selection.bg_fill = theme.accent_cpu;
                     egui::ScrollArea::vertical().show(ui, |ui| {
 
                         // ── Header ────────────────────────────────────────
@@ -78,7 +85,7 @@ pub fn show(
                                 .strong(),
                         );
                         ui.label(
-                            RichText::new("v2026.06.23  ·  System Resource Monitor")
+                            RichText::new(format!("{}  ·  System Resource Monitor", version_string()))
                                 .color(body)
                                 .monospace()
                                 .size(11.0),
@@ -174,7 +181,9 @@ pub fn show(
                             )
                             .custom_formatter(|v, _| format!("{:.0} pt", v))
                             .custom_parser(|s| s.trim_end_matches("pt").trim().parse().ok());
-                            if ui.add(slider).changed() { vis.save(); }
+                            // Save on release, not per drag-frame — avoids hammering config.json.
+                            let resp = ui.add(slider);
+                            if resp.drag_stopped() || resp.lost_focus() { vis.save(); }
                         }
 
                         // ── Visible cards ─────────────────────────────────
@@ -336,7 +345,7 @@ pub fn show(
                                         s.trim_end_matches('%').parse().ok().map(|v: f64| v / 100.0)
                                     }),
                             );
-                            if resp.changed() { vis.save(); }
+                            if resp.drag_stopped() || resp.lost_focus() { vis.save(); }
                         }
 
                         // ── Game overlay / Passthrough ────────────────────

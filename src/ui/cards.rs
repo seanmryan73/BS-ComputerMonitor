@@ -167,9 +167,11 @@ fn compact_row(
 
     glow_card(ui, theme, accent, |ui| {
         let has_sub = !sub_label.is_empty();
-        let has_bar = fill_pct.is_some();
 
-        let bar_reserve = if has_bar { BAR_H + BAR_GAP } else { 0.0 };
+        // Bar space is always reserved (even with no bar) so every row has the
+        // same height — keeps compact_window_height exact and stops rows
+        // bouncing when a sensor appears/disappears.
+        let bar_reserve = BAR_H + BAR_GAP;
         let min_h = if has_sub { 38.0 } else { 28.0 };
         let row_h = (font_size + 8.0 + bar_reserve).max(min_h);
 
@@ -291,7 +293,8 @@ fn compact_row(
                 );
             }
         }
-        ui.ctx().request_repaint();
+        // ~30 fps is enough for the pulse and keeps the idle repaint budget in check.
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
     }
 }
 
@@ -407,6 +410,9 @@ fn compact_temp_color(app: &MonitorApp, snap: &SystemSnapshot) -> Color32 {
         .unwrap_or(app.theme.text_subtle)
 }
 fn compact_ping_val(ping: &PingSnapshot) -> String {
+    if ping.unavailable {
+        return "n/a".into();
+    }
     if ping.sample_count == 0 {
         return "— ms".into();
     }
@@ -417,7 +423,7 @@ fn compact_ping_val(ping: &PingSnapshot) -> String {
 }
 
 fn compact_ping_color(app: &MonitorApp, ping: &PingSnapshot) -> Color32 {
-    if ping.sample_count == 0 {
+    if ping.unavailable || ping.sample_count == 0 {
         return app.theme.text_subtle;
     }
     if ping.loss_pct >= 100.0 {
@@ -432,6 +438,9 @@ fn compact_ping_color(app: &MonitorApp, ping: &PingSnapshot) -> Color32 {
 }
 
 fn compact_ping_sub(ping: &PingSnapshot) -> String {
+    if ping.unavailable {
+        return "ICMP unavailable".into();
+    }
     if ping.sample_count == 0 {
         return "measuring…".into();
     }
