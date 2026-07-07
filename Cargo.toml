@@ -16,7 +16,7 @@ eframe = { version = "0.29", default-features = false, features = [
 ] }
 egui = "0.29"
 egui_plot = "0.29"
-sysinfo = "0.32"
+sysinfo = "0.39"
 anyhow = "1"
 thiserror = "1"
 serde = { version = "1", features = ["derive"] }
