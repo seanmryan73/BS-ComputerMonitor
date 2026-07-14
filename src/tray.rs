@@ -66,7 +66,7 @@ impl TrayHandle {
     }
 }
 
-/// Generates the same 32×32 "BC" bitmap used for the window icon.
+/// Generates the same 32×32 "CM" bitmap used for the window icon.
 fn build_icon() -> Option<tray_icon::Icon> {
     const SIZE: u32 = 32;
     tray_icon::Icon::from_rgba(crate::icon_art::draw_icon_rgba(SIZE), SIZE, SIZE).ok()
