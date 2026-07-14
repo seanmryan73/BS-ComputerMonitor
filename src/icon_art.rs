@@ -7,15 +7,6 @@ const BG: [u8; 4] = [0x07, 0x07, 0x0B, 0xFF];
 const FG: [u8; 4] = [0xFF, 0x14, 0x93, 0xFF]; // neon pink accent
 const BORDER: [u8; 4] = [0x00, 0xFF, 0xDD, 0xFF]; // neon mint — complementary accent
 
-const GLYPH_B: [[u8; 5]; 7] = [
-    [1, 1, 1, 1, 0],
-    [1, 0, 0, 0, 1],
-    [1, 0, 0, 0, 1],
-    [1, 1, 1, 1, 0],
-    [1, 0, 0, 0, 1],
-    [1, 0, 0, 0, 1],
-    [1, 1, 1, 1, 0],
-];
 const GLYPH_C: [[u8; 5]; 7] = [
     [0, 1, 1, 1, 0],
     [1, 0, 0, 0, 0],
@@ -25,8 +16,17 @@ const GLYPH_C: [[u8; 5]; 7] = [
     [1, 0, 0, 0, 0],
     [0, 1, 1, 1, 0],
 ];
+const GLYPH_M: [[u8; 5]; 7] = [
+    [1, 0, 0, 0, 1],
+    [1, 1, 0, 1, 1],
+    [1, 0, 1, 0, 1],
+    [1, 0, 0, 0, 1],
+    [1, 0, 0, 0, 1],
+    [1, 0, 0, 0, 1],
+    [1, 0, 0, 0, 1],
+];
 
-/// Draws the "BC" glyph pair plus a neon-mint top/right border on a
+/// Draws the "CM" glyph pair plus a neon-mint top/right border on a
 /// `size`x`size` canvas, scaling the 32x32 reference layout (block scale 2,
 /// glyph origins at x=3/16, y=9) up or down.
 pub fn draw_icon_rgba(size: u32) -> Vec<u8> {
@@ -38,7 +38,7 @@ pub fn draw_icon_rgba(size: u32) -> Vec<u8> {
     }
 
     let block = ((2.0 * scale).round() as usize).max(1);
-    for (glyph, x0_ref) in [(&GLYPH_B, 3.0), (&GLYPH_C, 16.0)] {
+    for (glyph, x0_ref) in [(&GLYPH_C, 3.0), (&GLYPH_M, 16.0)] {
         let x0 = (x0_ref * scale).round() as usize;
         let y0 = (9.0 * scale).round() as usize;
         for (row, bits) in glyph.iter().enumerate() {
