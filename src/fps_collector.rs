@@ -304,7 +304,8 @@ mod inner {
         loop {
             thread::sleep(Duration::from_secs(1));
             let now = Instant::now();
-            let fg_pid = foreground_pid().filter(|&pid| pid != state.own_pid);
+            let fg_pid = foreground_pid(unsafe { GetForegroundWindow() })
+                .filter(|&pid| pid != state.own_pid);
 
             let (top_fps, top_name) = {
                 let mut map = state.presents.lock();
@@ -355,8 +356,7 @@ mod inner {
         }
     }
 
-    fn foreground_pid() -> Option<u32> {
-        let hwnd = unsafe { GetForegroundWindow() };
+    fn foreground_pid(hwnd: windows::Win32::Foundation::HWND) -> Option<u32> {
         if hwnd.0 == 0 {
             return None;
         }
@@ -425,7 +425,7 @@ mod inner {
                 active = None;
                 last_hwnd = fg;
                 if fg.0 != 0 {
-                    if foreground_pid().is_some_and(|pid| pid != std::process::id()) {
+                    if foreground_pid(fg).is_some_and(|pid| pid != std::process::id()) {
                         match wgc_start(&d3d, fg) {
                             Ok(s) => {
                                 active = Some(s);
