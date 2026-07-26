@@ -299,18 +299,23 @@ mod inner {
             })
             .expect("spawn fps-etw-pt");
 
-        // Publish the top FPS process every second.
+        // Publish FPS every second, preferring the foreground app PID so the
+        // card reflects what the user is actively running.
         loop {
             thread::sleep(Duration::from_secs(1));
             let now = Instant::now();
+            let fg_pid = foreground_pid().filter(|&pid| pid != state.own_pid);
 
             let (top_fps, top_name) = {
                 let mut map = state.presents.lock();
 
                 let mut best: f32 = 0.0;
                 let mut best_name = String::new();
+                let mut fg_seen = false;
+                let mut fg_fps: f32 = 0.0;
+                let mut fg_name = String::new();
 
-                for entry in map.values_mut() {
+                for (&pid, entry) in map.iter_mut() {
                     let elapsed = now.duration_since(entry.last_sample).as_secs_f32();
                     if elapsed < 0.1 {
                         continue;
@@ -319,6 +324,13 @@ mod inner {
                     let fps = (delta as f32 / elapsed).min(9999.0);
                     entry.last_total = entry.total;
                     entry.last_sample = now;
+
+                    if Some(pid) == fg_pid {
+                        fg_seen = true;
+                        fg_fps = fps;
+                        fg_name = entry.name.clone();
+                    }
+
                     if fps > best {
                         best = fps;
                         best_name = entry.name.clone();
@@ -328,7 +340,11 @@ mod inner {
                 // Evict processes quiet for 5+ seconds
                 map.retain(|_, e| now.duration_since(e.last_present) < Duration::from_secs(5));
 
-                (best, best_name)
+                match fg_pid {
+                    Some(_) if fg_seen => (fg_fps, fg_name),
+                    Some(_) => (0.0, String::new()),
+                    None => (best, best_name),
+                }
             };
 
             if let Ok(mut g) = shared.write() {
@@ -337,6 +353,16 @@ mod inner {
                 g.window_title = if top_fps > 1.0 { top_name } else { String::new() };
             }
         }
+    }
+
+    fn foreground_pid() -> Option<u32> {
+        let hwnd = unsafe { GetForegroundWindow() };
+        if hwnd.0 == 0 {
+            return None;
+        }
+        let mut pid: u32 = 0;
+        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)); }
+        if pid == 0 { None } else { Some(pid) }
     }
 
     // ── WGC fallback ──────────────────────────────────────────────────────────
@@ -399,9 +425,7 @@ mod inner {
                 active = None;
                 last_hwnd = fg;
                 if fg.0 != 0 {
-                    let mut fg_pid: u32 = 0;
-                    unsafe { GetWindowThreadProcessId(fg, Some(&mut fg_pid)); }
-                    if fg_pid != std::process::id() {
+                    if foreground_pid().is_some_and(|pid| pid != std::process::id()) {
                         match wgc_start(&d3d, fg) {
                             Ok(s) => {
                                 active = Some(s);
