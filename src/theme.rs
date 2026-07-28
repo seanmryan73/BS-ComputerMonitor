@@ -178,20 +178,31 @@ impl Theme {
         visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, self.text_subtle);
         visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, self.card_border);
         visuals.widgets.noninteractive.rounding = Rounding::same(4.0);
+        visuals.widgets.noninteractive.expansion = 0.0;
 
         visuals.widgets.inactive.bg_fill = self.card_bg;
         visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, self.text_subtle);
         visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, self.card_border);
         visuals.widgets.inactive.rounding = Rounding::same(4.0);
+        visuals.widgets.inactive.expansion = 0.0;
 
         visuals.widgets.hovered.bg_fill = self.hover_bg;
         visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, self.accent_cpu);
         visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, self.accent_cpu);
         visuals.widgets.hovered.rounding = Rounding::same(4.0);
+        visuals.widgets.hovered.expansion = 0.0;                     // NEVER > 0 — causes layout shift/bounce
 
         visuals.widgets.active.bg_fill = self.hover_bg;
         visuals.widgets.active.fg_stroke = Stroke::new(1.0, self.accent_cpu);
         visuals.widgets.active.bg_stroke = Stroke::new(1.0, self.accent_cpu);
+        visuals.widgets.active.rounding = Rounding::same(4.0);
+        visuals.widgets.active.expansion = 0.0;                      // NEVER > 0 — causes layout shift/bounce
+
+        visuals.widgets.open.bg_fill = self.hover_bg;
+        visuals.widgets.open.fg_stroke = Stroke::new(1.0, self.accent_cpu);
+        visuals.widgets.open.bg_stroke = Stroke::new(1.0, self.accent_cpu); // match other states — prevents open-state bounce
+        visuals.widgets.open.rounding = Rounding::same(4.0);
+        visuals.widgets.open.expansion = 0.0;
 
         visuals.override_text_color = Some(self.text_primary);
 
