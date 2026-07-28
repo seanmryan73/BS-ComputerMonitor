@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub enum ThemeId {
     CoralStorm,
-    CandyPop,
-    GlitchMode,
+    Shibui,
+    Kasane,
     ColdSteel,
     #[default]
     Lucky,
@@ -17,8 +17,8 @@ impl ThemeId {
     pub fn label(self) -> &'static str {
         match self {
             ThemeId::CoralStorm => "Coral Storm",
-            ThemeId::CandyPop   => "Candy Pop",
-            ThemeId::GlitchMode => "Glitch Mode",
+            ThemeId::Shibui     => "Shibui",
+            ThemeId::Kasane     => "Kasane",
             ThemeId::ColdSteel  => "Cold Steel",
             ThemeId::Lucky      => "Lucky",
         }
@@ -26,8 +26,8 @@ impl ThemeId {
 
     pub const ALL: &'static [ThemeId] = &[
         ThemeId::CoralStorm,
-        ThemeId::CandyPop,
-        ThemeId::GlitchMode,
+        ThemeId::Shibui,
+        ThemeId::Kasane,
         ThemeId::ColdSteel,
         ThemeId::Lucky,
     ];
@@ -93,28 +93,28 @@ impl Theme {
                 accent_net: ACCENT_NET, accent_disk: ACCENT_DISK, accent_temp: ACCENT_TEMP,
                 ok: OK, warn: WARN, crit: CRIT,
             },
-            ThemeId::CandyPop => Self {
-                bg:           Color32::from_rgb(0x10, 0x00, 0x08),
-                card_bg:      Color32::from_rgb(0x1e, 0x00, 0x12),
-                card_border:  Color32::from_rgb(0x30, 0x00, 0x1e),
-                titlebar_bg:  Color32::from_rgb(0x08, 0x00, 0x04),
-                hover_bg:     Color32::from_rgb(0x28, 0x00, 0x18),
-                text_primary: Color32::from_rgb(0xff, 0xdd, 0xee),
-                text_subtle:  Color32::from_rgb(0xaa, 0x00, 0x55),
-                text_dim:     Color32::from_rgb(0x1e, 0x00, 0x12),
+            ThemeId::Shibui => Self {
+                bg:           Color32::from_rgb(0x14, 0x0a, 0x0c),
+                card_bg:      Color32::from_rgb(0x24, 0x13, 0x18),
+                card_border:  Color32::from_rgb(0x18, 0x0d, 0x10),
+                titlebar_bg:  Color32::from_rgb(0x0a, 0x05, 0x06),
+                hover_bg:     Color32::from_rgb(0x1c, 0x0f, 0x12),
+                text_primary: Color32::from_rgb(0xed, 0xe3, 0xd6),
+                text_subtle:  Color32::from_rgb(0x7a, 0x27, 0x32),
+                text_dim:     Color32::from_rgb(0x24, 0x13, 0x18),
                 accent_cpu: ACCENT_CPU, accent_mem: ACCENT_MEM, accent_gpu: ACCENT_GPU,
                 accent_net: ACCENT_NET, accent_disk: ACCENT_DISK, accent_temp: ACCENT_TEMP,
                 ok: OK, warn: WARN, crit: CRIT,
             },
-            ThemeId::GlitchMode => Self {
-                bg:           Color32::from_rgb(0x00, 0x03, 0x00),
-                card_bg:      Color32::from_rgb(0x00, 0x08, 0x02),
-                card_border:  Color32::from_rgb(0x00, 0x1c, 0x06),
-                titlebar_bg:  Color32::from_rgb(0x00, 0x01, 0x00),
-                hover_bg:     Color32::from_rgb(0x00, 0x10, 0x00),
-                text_primary: Color32::from_rgb(0xcc, 0xff, 0xdd),
-                text_subtle:  Color32::from_rgb(0x00, 0x77, 0x33),
-                text_dim:     Color32::from_rgb(0x00, 0x08, 0x02),
+            ThemeId::Kasane => Self {
+                bg:           Color32::from_rgb(0x0d, 0x07, 0x14),
+                card_bg:      Color32::from_rgb(0x1c, 0x0f, 0x2b),
+                card_border:  Color32::from_rgb(0x14, 0x0a, 0x1e),
+                titlebar_bg:  Color32::from_rgb(0x06, 0x03, 0x0a),
+                hover_bg:     Color32::from_rgb(0x17, 0x0c, 0x22),
+                text_primary: Color32::from_rgb(0xf7, 0xcf, 0xd4),
+                text_subtle:  Color32::from_rgb(0xa8, 0x7c, 0xc2),
+                text_dim:     Color32::from_rgb(0x1c, 0x0f, 0x2b),
                 accent_cpu: ACCENT_CPU, accent_mem: ACCENT_MEM, accent_gpu: ACCENT_GPU,
                 accent_net: ACCENT_NET, accent_disk: ACCENT_DISK, accent_temp: ACCENT_TEMP,
                 ok: OK, warn: WARN, crit: CRIT,
