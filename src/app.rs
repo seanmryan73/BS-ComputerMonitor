@@ -91,7 +91,7 @@ impl Default for CardVisibility {
             passthrough_mode: false,
             selected_gpu_index: 0,
             net_cap_mbps: 1000.0,
-            theme_id: ThemeId::Lucky,
+            theme_id: ThemeId::Kasane,
             ping_target: "1.1.1.1".into(),
         }
     }

@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 pub enum ThemeId {
     CoralStorm,
     Shibui,
+    #[default]
     Kasane,
     ColdSteel,
-    #[default]
-    Lucky,
+    Jizo,
 }
 
 impl ThemeId {
@@ -20,7 +20,7 @@ impl ThemeId {
             ThemeId::Shibui     => "Shibui",
             ThemeId::Kasane     => "Kasane",
             ThemeId::ColdSteel  => "Cold Steel",
-            ThemeId::Lucky      => "Lucky",
+            ThemeId::Jizo       => "Jizo",
         }
     }
 
@@ -29,7 +29,7 @@ impl ThemeId {
         ThemeId::Shibui,
         ThemeId::Kasane,
         ThemeId::ColdSteel,
-        ThemeId::Lucky,
+        ThemeId::Jizo,
     ];
 }
 
@@ -74,7 +74,7 @@ const WARN:        Color32 = Color32::from_rgb(0xff, 0xaa, 0x22);
 const CRIT:        Color32 = Color32::from_rgb(0xff, 0x22, 0x11);
 
 impl Default for Theme {
-    fn default() -> Self { Self::from_id(ThemeId::Lucky) }
+    fn default() -> Self { Self::from_id(ThemeId::Kasane) }
 }
 
 impl Theme {
@@ -120,27 +120,27 @@ impl Theme {
                 ok: OK, warn: WARN, crit: CRIT,
             },
             ThemeId::ColdSteel => Self {
-                bg:           Color32::from_rgb(0x08, 0x08, 0x08),
-                card_bg:      Color32::from_rgb(0x10, 0x10, 0x10),
-                card_border:  Color32::from_rgb(0x28, 0x28, 0x28),
-                titlebar_bg:  Color32::from_rgb(0x03, 0x03, 0x03),
-                hover_bg:     Color32::from_rgb(0x1a, 0x1a, 0x1a),
-                text_primary: Color32::from_rgb(0xec, 0xec, 0xec),
-                text_subtle:  Color32::from_rgb(0x66, 0x66, 0x66),
-                text_dim:     Color32::from_rgb(0x10, 0x10, 0x10),
+                bg:           Color32::from_rgb(0x0a, 0x0b, 0x0d),
+                card_bg:      Color32::from_rgb(0x16, 0x17, 0x1b),
+                card_border:  Color32::from_rgb(0xc6, 0x28, 0x39),
+                titlebar_bg:  Color32::from_rgb(0x06, 0x07, 0x0a),
+                hover_bg:     Color32::from_rgb(0x2b, 0x16, 0x20),
+                text_primary: Color32::from_rgb(0xe8, 0xec, 0xf1),
+                text_subtle:  Color32::from_rgb(0x7f, 0x8f, 0xa6),
+                text_dim:     Color32::from_rgb(0x16, 0x17, 0x1b),
                 accent_cpu: ACCENT_CPU, accent_mem: ACCENT_MEM, accent_gpu: ACCENT_GPU,
                 accent_net: ACCENT_NET, accent_disk: ACCENT_DISK, accent_temp: ACCENT_TEMP,
                 ok: OK, warn: WARN, crit: CRIT,
             },
-            ThemeId::Lucky => Self {
-                bg:           Color32::from_rgb(0x14, 0x00, 0x2d),
-                card_bg:      Color32::from_rgb(0x2d, 0x08, 0x50),
-                card_border:  Color32::from_rgb(0x55, 0x22, 0x88),
-                titlebar_bg:  Color32::from_rgb(0x0a, 0x00, 0x18),
-                hover_bg:     Color32::from_rgb(0x23, 0x04, 0x41),
-                text_primary: Color32::from_rgb(0xa8, 0xf0, 0x32),
-                text_subtle:  Color32::from_rgb(0x88, 0x55, 0xcc),
-                text_dim:     Color32::from_rgb(0x2d, 0x08, 0x50),
+            ThemeId::Jizo => Self {
+                bg:           Color32::from_rgb(0x12, 0x0f, 0x0c),
+                card_bg:      Color32::from_rgb(0x1f, 0x19, 0x13),
+                card_border:  Color32::from_rgb(0x6b, 0x5f, 0x52),
+                titlebar_bg:  Color32::from_rgb(0x0c, 0x0a, 0x08),
+                hover_bg:     Color32::from_rgb(0x2a, 0x10, 0x15),
+                text_primary: Color32::from_rgb(0xe3, 0xcf, 0xd2),
+                text_subtle:  Color32::from_rgb(0x8f, 0x81, 0x75),
+                text_dim:     Color32::from_rgb(0x1f, 0x19, 0x13),
                 accent_cpu: ACCENT_CPU, accent_mem: ACCENT_MEM, accent_gpu: ACCENT_GPU,
                 accent_net: ACCENT_NET, accent_disk: ACCENT_DISK, accent_temp: ACCENT_TEMP,
                 ok: OK, warn: WARN, crit: CRIT,
