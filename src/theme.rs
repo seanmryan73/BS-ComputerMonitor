@@ -7,10 +7,11 @@ use serde::{Deserialize, Serialize};
 pub enum ThemeId {
     CoralStorm,
     Shibui,
-    #[default]
     Kasane,
+    #[default]
     ColdSteel,
     Jizo,
+    HotSteel,
 }
 
 impl ThemeId {
@@ -21,6 +22,7 @@ impl ThemeId {
             ThemeId::Kasane     => "Kasane",
             ThemeId::ColdSteel  => "Cold Steel",
             ThemeId::Jizo       => "Jizo",
+            ThemeId::HotSteel   => "Hot Steel",
         }
     }
 
@@ -30,6 +32,7 @@ impl ThemeId {
         ThemeId::Kasane,
         ThemeId::ColdSteel,
         ThemeId::Jizo,
+        ThemeId::HotSteel,
     ];
 }
 
@@ -74,7 +77,7 @@ const WARN:        Color32 = Color32::from_rgb(0xff, 0xaa, 0x22);
 const CRIT:        Color32 = Color32::from_rgb(0xff, 0x22, 0x11);
 
 impl Default for Theme {
-    fn default() -> Self { Self::from_id(ThemeId::Kasane) }
+    fn default() -> Self { Self::from_id(ThemeId::ColdSteel) }
 }
 
 impl Theme {
@@ -122,9 +125,9 @@ impl Theme {
             ThemeId::ColdSteel => Self {
                 bg:           Color32::from_rgb(0x0a, 0x0b, 0x0d),
                 card_bg:      Color32::from_rgb(0x16, 0x17, 0x1b),
-                card_border:  Color32::from_rgb(0xc6, 0x28, 0x39),
+                card_border:  Color32::from_rgb(0x3f, 0x6f, 0x99),
                 titlebar_bg:  Color32::from_rgb(0x06, 0x07, 0x0a),
-                hover_bg:     Color32::from_rgb(0x2b, 0x16, 0x20),
+                hover_bg:     Color32::from_rgb(0x2f, 0x6f, 0xd6),
                 text_primary: Color32::from_rgb(0xe8, 0xec, 0xf1),
                 text_subtle:  Color32::from_rgb(0x7f, 0x8f, 0xa6),
                 text_dim:     Color32::from_rgb(0x16, 0x17, 0x1b),
@@ -141,6 +144,19 @@ impl Theme {
                 text_primary: Color32::from_rgb(0xe3, 0xcf, 0xd2),
                 text_subtle:  Color32::from_rgb(0x8f, 0x81, 0x75),
                 text_dim:     Color32::from_rgb(0x1f, 0x19, 0x13),
+                accent_cpu: ACCENT_CPU, accent_mem: ACCENT_MEM, accent_gpu: ACCENT_GPU,
+                accent_net: ACCENT_NET, accent_disk: ACCENT_DISK, accent_temp: ACCENT_TEMP,
+                ok: OK, warn: WARN, crit: CRIT,
+            },
+            ThemeId::HotSteel => Self {
+                bg:           Color32::from_rgb(0x0d, 0x0a, 0x0b),
+                card_bg:      Color32::from_rgb(0x1b, 0x15, 0x17),
+                card_border:  Color32::from_rgb(0x8f, 0x3f, 0x5f),
+                titlebar_bg:  Color32::from_rgb(0x08, 0x06, 0x07),
+                hover_bg:     Color32::from_rgb(0xd6, 0x3f, 0x7f),
+                text_primary: Color32::from_rgb(0xf1, 0xe8, 0xec),
+                text_subtle:  Color32::from_rgb(0xa6, 0x80, 0x8a),
+                text_dim:     Color32::from_rgb(0x1b, 0x15, 0x17),
                 accent_cpu: ACCENT_CPU, accent_mem: ACCENT_MEM, accent_gpu: ACCENT_GPU,
                 accent_net: ACCENT_NET, accent_disk: ACCENT_DISK, accent_temp: ACCENT_TEMP,
                 ok: OK, warn: WARN, crit: CRIT,
