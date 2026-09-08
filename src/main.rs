@@ -42,7 +42,7 @@ fn single_instance_or_focus_existing() -> bool {
         return true;
     }
 
-    let title: Vec<u16> = "BC Computer Monitor\0".encode_utf16().collect();
+    let title: Vec<u16> = "BS Computer Monitor\0".encode_utf16().collect();
     unsafe {
         let hwnd = FindWindowW(PCWSTR::null(), PCWSTR(title.as_ptr()));
         if hwnd.0 != 0 {
@@ -56,6 +56,20 @@ fn single_instance_or_focus_existing() -> bool {
 #[cfg(not(windows))]
 fn single_instance_or_focus_existing() -> bool { true }
 
+fn app_display_name() -> &'static str {
+    "BS Computer Monitor"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::app_display_name;
+
+    #[test]
+    fn app_name_uses_bs_branding() {
+        assert_eq!(app_display_name(), "BS Computer Monitor");
+    }
+}
+
 fn main() -> eframe::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
 
@@ -66,7 +80,7 @@ fn main() -> eframe::Result<()> {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("BC Computer Monitor")
+            .with_title("BS Computer Monitor")
             .with_inner_size([350.0, 400.0])
             .with_min_inner_size([110.0, 200.0])
             .with_decorations(false)
@@ -76,7 +90,7 @@ fn main() -> eframe::Result<()> {
     };
 
     eframe::run_native(
-        "BC Computer Monitor",
+        "BS Computer Monitor",
         native_options,
         Box::new(|cc| Ok(Box::new(app::MonitorApp::new(cc)))),
     )

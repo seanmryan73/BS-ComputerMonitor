@@ -22,7 +22,7 @@ impl TrayHandle {
         let (tx, rx) = mpsc::channel::<TrayCmd>();
 
         // Menu items
-        let show_item = MenuItem::new("Show BC Monitor", true, None);
+        let show_item = MenuItem::new("Show BS Monitor", true, None);
         let exit_item = MenuItem::new("Exit", true, None);
         let show_id   = show_item.id().clone();
         let exit_id   = exit_item.id().clone();
@@ -53,7 +53,7 @@ impl TrayHandle {
 
         let tray = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
-            .with_tooltip("BC Computer Monitor")
+            .with_tooltip("BS Computer Monitor")
             .with_icon(icon)
             .build()
             .ok()?;

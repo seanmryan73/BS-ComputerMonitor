@@ -43,7 +43,7 @@ pub fn show(
     let theme = *theme;
 
     let mut builder = ViewportBuilder::default()
-        .with_title("BC Monitor — Settings")
+        .with_title("BS Monitor — Settings")
         .with_inner_size([360.0, 700.0])
         .with_resizable(false)
         .with_maximize_button(false);
@@ -78,7 +78,7 @@ pub fn show(
                         // ── Header ────────────────────────────────────────
                         ui.add_space(2.0);
                         ui.label(
-                            RichText::new("BC COMPUTER MONITOR")
+                            RichText::new("BS COMPUTER MONITOR")
                                 .color(theme.accent_cpu)
                                 .monospace()
                                 .size(18.0)
@@ -421,10 +421,10 @@ pub fn show(
                             );
                             ui.add_space(3.0);
                             ui.label(
-                                RichText::new("\"Because knowing your system is half the battle.\"")
+                                RichText::new("\"The system is currently operational and will remain operational until a specific, unannounced internal component ceases to function as intended.\"")
                                     .color(hint)
                                     .monospace()
-                                    .size(10.5)
+                                    .size(9.5)
                                     .italics(),
                             );
                             ui.add_space(6.0);
