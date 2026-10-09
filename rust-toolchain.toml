@@ -1,2 +1,3 @@
 [toolchain]
 channel = "1.96"   # exact pin = Cargo.toml rust-version = clippy.toml msrv
+components = ["rustfmt", "clippy"]   # CI's rustup installs the minimal profile: without this, no clippy
