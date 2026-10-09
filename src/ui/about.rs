@@ -11,10 +11,26 @@ const CLOSE_ID: &str = "about_close_requested";
 /// Display version derived from Cargo.toml so the two can't drift. Cargo
 /// rejects leading zeros in semver, so zero-pad month/day here (YYYY.MM.DD).
 fn version_string() -> String {
-    let mut parts = env!("CARGO_PKG_VERSION").split('.');
-    match (parts.next(), parts.next(), parts.next()) {
-        (Some(y), Some(m), Some(d)) => format!("v{y}.{m:0>2}.{d:0>2}"),
-        _ => format!("v{}", env!("CARGO_PKG_VERSION")),
+    format!("v{}", pad_version(env!("CARGO_PKG_VERSION")))
+}
+
+/// `2026.8.15` -> `2026.08.15`, and a same-day letter, which Cargo can only spell as a SemVer
+/// prerelease, back to its display form: `2026.10.9-a` -> `2026.10.09a` (vault
+/// Author-Version-Standards § Version Format). The suffix is split off first: padding the third
+/// `.` part alone left `9-a` as it was. Any other prerelease (`-rc1`) is kept as written.
+fn pad_version(cargo: &str) -> String {
+    let (core, pre) = cargo.split_once('-').map_or((cargo, None), |(c, p)| (c, Some(p)));
+    let mut parts = core.split('.');
+    let date = match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some(y), Some(m), Some(d), None) => format!("{y}.{m:0>2}.{d:0>2}"),
+        _ => return cargo.to_string(),
+    };
+    match pre {
+        Some(letter) if letter.len() == 1 && letter.chars().all(|c| c.is_ascii_lowercase()) => {
+            format!("{date}{letter}")
+        }
+        Some(other) => format!("{date}-{other}"),
+        None => date,
     }
 }
 
@@ -587,4 +603,17 @@ fn divider(ui: &mut egui::Ui, color: Color32, alpha_frac: f32) {
         [rect.left_center(), rect.right_center()],
         Stroke::new(1.0, Color32::from_rgba_unmultiplied(r, g, b, alpha)),
     );
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::pad_version;
+
+    #[test]
+    fn a_same_day_letter_displays_as_a_suffix_and_other_prereleases_stay() {
+        assert_eq!(pad_version("2026.8.15"), "2026.08.15");
+        assert_eq!(pad_version("2026.10.9-a"), "2026.10.09a");
+        assert_eq!(pad_version("2026.10.19-b"), "2026.10.19b");
+        assert_eq!(pad_version("2026.6.25-rc1"), "2026.06.25-rc1");
+    }
 }
