@@ -1,6 +1,6 @@
 // Author  : Sean Ryan <seanmryan@gmail.com>
 // Company : BagPipes
-// Version : 2026.06.23
+// Version : 2026.10.09
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![allow(dead_code, unused_variables, unused_imports)]
@@ -60,16 +60,6 @@ fn app_display_name() -> &'static str {
     "BS Computer Monitor"
 }
 
-#[cfg(test)]
-mod tests {
-    use super::app_display_name;
-
-    #[test]
-    fn app_name_uses_bs_branding() {
-        assert_eq!(app_display_name(), "BS Computer Monitor");
-    }
-}
-
 fn main() -> eframe::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
 
@@ -94,4 +84,14 @@ fn main() -> eframe::Result<()> {
         native_options,
         Box::new(|cc| Ok(Box::new(app::MonitorApp::new(cc)))),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::app_display_name;
+
+    #[test]
+    fn app_name_uses_bs_branding() {
+        assert_eq!(app_display_name(), "BS Computer Monitor");
+    }
 }

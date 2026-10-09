@@ -453,14 +453,14 @@ mod gpu_win {
 
         // Prefer CPU-labelled zones; fall back to max across all zones.
         let cpu_max = values.iter()
-            .filter_map(|v| to_celsius(v))
+            .filter_map(&to_celsius)
             .filter(|(is_cpu, _)| *is_cpu)
             .map(|(_, c)| c)
             .reduce(f32::max);
 
         cpu_max.or_else(|| {
             values.iter()
-                .filter_map(|v| to_celsius(v))
+                .filter_map(to_celsius)
                 .map(|(_, c)| c)
                 .reduce(f32::max)
         })

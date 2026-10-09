@@ -424,15 +424,13 @@ mod inner {
             if fg != last_hwnd {
                 active = None;
                 last_hwnd = fg;
-                if fg.0 != 0 {
-                    if foreground_pid(fg).is_some_and(|pid| pid != std::process::id()) {
-                        match wgc_start(&d3d, fg) {
-                            Ok(s) => {
-                                active = Some(s);
-                                fps_tick = Instant::now();
-                            }
-                            Err(e) => log::debug!("WGC skip: {e}"),
+                if fg.0 != 0 && foreground_pid(fg).is_some_and(|pid| pid != std::process::id()) {
+                    match wgc_start(&d3d, fg) {
+                        Ok(s) => {
+                            active = Some(s);
+                            fps_tick = Instant::now();
                         }
+                        Err(e) => log::debug!("WGC skip: {e}"),
                     }
                 }
             }
