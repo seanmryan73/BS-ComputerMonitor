@@ -9,6 +9,7 @@ mod app;
 mod collector;
 mod fps_collector;
 mod icon_art;
+mod logging;
 mod models;
 mod ping_collector;
 mod theme;
@@ -61,7 +62,10 @@ fn app_display_name() -> &'static str {
 }
 
 fn main() -> eframe::Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    // First, before anything can log: a file in %LOCALAPPDATA%, since the release build has no
+    // console and a bare env_logger wrote to a stderr nobody could read.
+    logging::init();
+    logging::install_panic_hook();
 
     if !single_instance_or_focus_existing() {
         log::info!("another instance is already running — exiting");
