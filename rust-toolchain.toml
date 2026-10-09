@@ -1,2 +1,2 @@
 [toolchain]
-channel = "stable"
+channel = "1.96"   # exact pin = Cargo.toml rust-version = clippy.toml msrv
