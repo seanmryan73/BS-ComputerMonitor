@@ -66,7 +66,7 @@ Font size is freely adjustable (11 – 60 pt) via the settings panel; the window
 
 - Windows 10 1709+ (WDDM 2.7+ for GPU PDH perf counters)
 - Rust toolchain — stable, MSVC target (`x86_64-pc-windows-msvc`)
-- Admin rights recommended (GPU utilization % and CPU/GPU temps need elevated access)
+- Admin rights: the release exe asks for UAC elevation on launch, because GPU utilization %, CPU/GPU temps and FPS counting need elevated access. Debug builds run unelevated.
 
 ## Build & Run
 
