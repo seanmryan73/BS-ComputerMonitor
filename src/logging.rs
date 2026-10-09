@@ -96,9 +96,10 @@ pub fn init() -> Option<PathBuf> {
 pub fn install_panic_hook() {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let location = info
-            .location()
-            .map_or_else(|| "unknown location".to_owned(), |l| format!("{}:{}", l.file(), l.line()));
+        let location = info.location().map_or_else(
+            || "unknown location".to_owned(),
+            |l| format!("{}:{}", l.file(), l.line()),
+        );
         let message = info.payload_as_str().unwrap_or("<non-string panic payload>");
         log::error!("PANIC at {location}: {message}");
         log::logger().flush();
@@ -131,14 +132,24 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("bscm-logtest-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        for name in ["log-20260101-000000.log", "log-20260102-000000.log", "log-20260103-000000.log", "notes.txt"] {
+        for name in [
+            "log-20260101-000000.log",
+            "log-20260102-000000.log",
+            "log-20260103-000000.log",
+            "notes.txt",
+        ] {
             File::create(dir.join(name)).unwrap();
         }
         prune_old_logs(&dir, 2);
-        let mut left: Vec<String> =
-            fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        let mut left: Vec<String> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
         left.sort();
-        assert_eq!(left, ["log-20260102-000000.log", "log-20260103-000000.log", "notes.txt"]);
+        assert_eq!(
+            left,
+            ["log-20260102-000000.log", "log-20260103-000000.log", "notes.txt"]
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 }
