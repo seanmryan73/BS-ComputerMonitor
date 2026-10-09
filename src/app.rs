@@ -12,7 +12,7 @@ use crate::{
     ui,
 };
 
-fn config_path() -> std::path::PathBuf {
+pub(crate) fn config_path() -> std::path::PathBuf {
     let base = std::env::var("APPDATA")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::path::PathBuf::from("."));

@@ -213,7 +213,7 @@ checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
 
 [[package]]
 name = "bc-computer-monitor"
-version = "2026.10.9-b"
+version = "2026.10.9-c"
 dependencies = [
  "anyhow",
  "chrono",

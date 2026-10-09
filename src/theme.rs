@@ -12,6 +12,7 @@ pub enum ThemeId {
     ColdSteel,
     Jizo,
     HotSteel,
+    Terminal,
 }
 
 impl ThemeId {
@@ -23,6 +24,7 @@ impl ThemeId {
             ThemeId::ColdSteel  => "Cold Steel",
             ThemeId::Jizo       => "Jizo",
             ThemeId::HotSteel   => "Hot Steel",
+            ThemeId::Terminal   => "Terminal",
         }
     }
 
@@ -33,6 +35,7 @@ impl ThemeId {
         ThemeId::ColdSteel,
         ThemeId::Jizo,
         ThemeId::HotSteel,
+        ThemeId::Terminal,
     ];
 }
 
@@ -161,6 +164,20 @@ impl Theme {
                 accent_net: ACCENT_NET, accent_disk: ACCENT_DISK, accent_temp: ACCENT_TEMP,
                 ok: OK, warn: WARN, crit: CRIT,
             },
+            // Vault Theme-Palettes-and-Templates.md, added 2026-10-09: near-black terminal greys.
+            ThemeId::Terminal => Self {
+                bg:           Color32::from_rgb(0x0c, 0x0c, 0x0c),
+                card_bg:      Color32::from_rgb(0x14, 0x14, 0x14),
+                card_border:  Color32::from_rgb(0x70, 0x70, 0x70),
+                titlebar_bg:  Color32::from_rgb(0x06, 0x06, 0x06),
+                hover_bg:     Color32::from_rgb(0x00, 0x60, 0x68),
+                text_primary: Color32::from_rgb(0xd0, 0xd0, 0xd0),
+                text_subtle:  Color32::from_rgb(0x8a, 0x8a, 0x8a),
+                text_dim:     Color32::from_rgb(0x14, 0x14, 0x14),
+                accent_cpu: ACCENT_CPU, accent_mem: ACCENT_MEM, accent_gpu: ACCENT_GPU,
+                accent_net: ACCENT_NET, accent_disk: ACCENT_DISK, accent_temp: ACCENT_TEMP,
+                ok: OK, warn: WARN, crit: CRIT,
+            },
         }
     }
 
@@ -228,5 +245,19 @@ impl Theme {
         style.spacing.button_padding = egui::vec2(8.0, 4.0);
 
         ctx.set_style(style);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ThemeId;
+
+    #[test]
+    fn all_lists_every_variant_once_including_the_default() {
+        let mut labels: Vec<_> = ThemeId::ALL.iter().map(|t| t.label()).collect();
+        labels.sort_unstable();
+        labels.dedup();
+        assert_eq!(labels.len(), 7);
+        assert!(ThemeId::ALL.contains(&ThemeId::default()));
     }
 }

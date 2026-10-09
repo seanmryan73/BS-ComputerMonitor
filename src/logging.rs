@@ -1,6 +1,6 @@
 // Author  : Sean Ryan <seanmryan@gmail.com>
 // Company : BagPipes
-// Version : 2026.10.09
+// Version : 2026.10.09c
 
 //! File logging per the vault's Rust-Desktop-Standards § Logging Standard.
 //!
@@ -28,7 +28,7 @@ static LAUNCH: OnceLock<Instant> = OnceLock::new();
 
 /// `None` when `LOCALAPPDATA` is unset: `init` then logs to stderr. Never `.`, which for a
 /// double-clicked EXE is the install folder.
-fn log_dir() -> Option<PathBuf> {
+pub(crate) fn log_dir() -> Option<PathBuf> {
     log_dir_under(std::env::var_os("LOCALAPPDATA"))
 }
 
