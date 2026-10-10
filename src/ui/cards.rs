@@ -161,7 +161,6 @@ fn compact_row(
 ) {
     const BAR_H:  f32 = 3.0;
     const BAR_GAP: f32 = 4.0;
-    const SUB_C: Color32 = Color32::from_rgb(0x68, 0x8E, 0x78);
 
     let top_y = ui.cursor().top();
 
@@ -207,7 +206,7 @@ fn compact_row(
             p.text(egui::pos2(tx, cy - 7.0), Align2::LEFT_CENTER, label,
                 FontId::new(10.5, FontFamily::Monospace), accent);
             p.text(egui::pos2(tx, cy + 7.0), Align2::LEFT_CENTER, sub_label,
-                FontId::new(9.5, FontFamily::Proportional), SUB_C);
+                FontId::new(9.5, FontFamily::Proportional), theme.text_subtle);
         } else {
             p.text(egui::pos2(tx, cy), Align2::LEFT_CENTER, label,
                 FontId::new(10.5, FontFamily::Monospace), accent);
@@ -258,7 +257,9 @@ fn compact_row(
                             egui::pos2(peak_x + 1.0, bar_bot + 1.0),
                         ),
                         Rounding::ZERO,
-                        Color32::from_rgba_unmultiplied(255, 255, 255, 200),
+                        // Text colour, not white: white vanishes on the light themes.
+                        Color32::from_rgba_unmultiplied(
+                            theme.text_primary.r(), theme.text_primary.g(), theme.text_primary.b(), 200),
                     );
                 }
             }

@@ -14,7 +14,7 @@ use egui::{
 
 use crate::{
     app::CardVisibility,
-    theme::{Theme, ThemeId},
+    theme::{contrast, Theme, ThemeId},
 };
 
 const CLOSE_ID: &str = "about_close_requested";
@@ -85,9 +85,23 @@ impl Look {
     fn new(t: Theme) -> Self {
         Self {
             t,
-            body: mix(t.text_primary, t.bg, 0.25),
-            hint: mix(t.text_primary, t.bg, 0.40),
+            body: readable_mix(&t, 0.25),
+            hint: readable_mix(&t, 0.40),
         }
+    }
+}
+
+/// `text_primary` blended `frac` of the way toward `bg`, backed off in 5% steps until it holds
+/// 4.5:1 on both `bg` and `card_bg`. Only themes whose card is close to the text in lightness
+/// (Coral Storm, Jizo) need the back-off; the rest keep the full blend.
+fn readable_mix(t: &Theme, frac: f32) -> Color32 {
+    let mut f = frac;
+    loop {
+        let c = mix(t.text_primary, t.bg, f);
+        if f <= 0.0 || (contrast(c, t.bg) >= 4.5 && contrast(c, t.card_bg) >= 4.5) {
+            return c;
+        }
+        f -= 0.05;
     }
 }
 
@@ -378,8 +392,8 @@ fn theme_grid(ui: &mut Ui, look: &Look, card_vis: &Mutex<CardVisibility>) {
 }
 
 /// One theme-picker cell. The chip shows that theme's own surfaces (`bg` | `hover_bg`, framed in
-/// `card_border`): every theme shares the same metric accents, so an accent chip would look the
-/// same for all seven.
+/// `card_border`): the dark themes share the same metric accents, so an accent chip would look the
+/// same for most of them.
 fn swatch(ui: &mut Ui, look: &Look, id: ThemeId, selected: bool, width: f32) -> Response {
     let t = look.t;
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 28.0), Sense::click());
@@ -871,26 +885,7 @@ mod version_tests {
 #[cfg(test)]
 mod look_tests {
     use super::Look;
-    use crate::theme::{Theme, ThemeId};
-    use egui::Color32;
-
-    /// WCAG 2.x relative luminance.
-    fn luminance(c: Color32) -> f64 {
-        let lin = |v: u8| {
-            let s = f64::from(v) / 255.0;
-            if s <= 0.040_45 {
-                s / 12.92
-            } else {
-                ((s + 0.055) / 1.055).powf(2.4)
-            }
-        };
-        0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
-    }
-
-    fn contrast(a: Color32, b: Color32) -> f64 {
-        let (x, y) = (luminance(a), luminance(b));
-        (x.max(y) + 0.05) / (x.min(y) + 0.05)
-    }
+    use crate::theme::{contrast, Theme, ThemeId};
 
     /// The window paints body and hint text on both `bg` and `card_bg`; both levels must clear
     /// WCAG 1.4.3 (4.5:1) on both, for every theme, Terminal included.
