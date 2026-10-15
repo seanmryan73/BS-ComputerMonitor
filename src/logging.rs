@@ -1,6 +1,6 @@
 // Author  : Sean Ryan <seanmryan@gmail.com>
 // Company : BagPipes
-// Version : 2026.10.09c
+// Version : 2026.10.14
 
 //! File logging per the vault's Rust-Desktop-Standards § Logging Standard.
 //!
@@ -101,7 +101,10 @@ pub fn install_panic_hook() {
             |l| format!("{}:{}", l.file(), l.line()),
         );
         let message = info.payload_as_str().unwrap_or("<non-string panic payload>");
-        log::error!("PANIC at {location}: {message}");
+        // force_capture: the default hook prints a backtrace only with RUST_BACKTRACE set, and only
+        // to stderr, which a GUI build discards (Rust-Desktop-Standards.md § Panics need their own hook).
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        log::error!("PANIC at {location}: {message}\n{backtrace}");
         log::logger().flush();
         previous(info);
     }));

@@ -65,6 +65,7 @@ opt-level = 3
 lto = true
 codegen-units = 1
 strip = "symbols"
+debug = "line-tables-only"   # file:line in a logged panic backtrace; lives in the .pdb
 panic = "abort"
 
 [profile.dev]
