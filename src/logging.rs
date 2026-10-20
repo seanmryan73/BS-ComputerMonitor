@@ -1,6 +1,6 @@
 // Author  : Sean Ryan <seanmryan@gmail.com>
 // Company : BagPipes
-// Version : 2026.10.14
+// Version : 2026.10.20
 
 //! File logging per the vault's Rust-Desktop-Standards § Logging Standard.
 //!
@@ -11,7 +11,9 @@
 //!
 //! Lines carry elapsed-since-launch (`mmm:ss.mmm`); the wall clock is in the file name and in the
 //! banner, which is written straight to the file so it appears at any `RUST_LOG` level. The default
-//! level is `warn`: this is an always-running monitor, and `info` per sample would bury the file.
+//! filter is `warn,bc_computer_monitor=info`: this always-running monitor logs lifecycle and
+//! saved-state changes at `info` and nothing per sample, so `info` costs a few lines a session.
+//! Until 2026-10-20 it was plain `warn`, which left every log holding only the banner.
 
 use std::fs::{self, File};
 use std::io::Write;
@@ -23,6 +25,51 @@ use env_logger::{Builder, Env, Target};
 
 const APP_DIR: &str = "BSComputerMonitor";
 const KEEP_LOGS: usize = 20;
+/// `warn` for dependencies (wgpu/winit chatter); `info` for this crate, which logs lifecycle and
+/// saved-state changes there and nothing per sample (vault § Logging Standard, monitors).
+const DEFAULT_FILTER: &str = "warn,bc_computer_monitor=info";
+/// Present while a session runs; finding it at start means the last one never reached `on_exit`.
+const SESSION_MARKER: &str = "session.running";
+
+/// Call once, after the single-instance check so a second copy can't trip it. Logs when the
+/// previous session died without `on_exit` — a native fault (GPU driver, ETW, WGC) leaves no panic
+/// and no log line, so this is the only trace. A kill or a Windows shutdown reports here too.
+pub fn mark_session_start() {
+    if let Some(dir) = log_dir() {
+        mark_session_start_in(&dir);
+    }
+}
+
+fn mark_session_start_in(dir: &Path) -> bool {
+    let marker = dir.join(SESSION_MARKER);
+    let unclean = marker.exists();
+    if unclean {
+        log::warn!(
+            "previous session did not exit cleanly (crash, kill or Windows shutdown); \
+             a native fault is in Event Viewer > Application, Event ID 1000"
+        );
+    }
+    if let Err(e) = fs::write(&marker, std::process::id().to_string()) {
+        log::warn!("could not write {}: {e}; unclean exits won't be detected", marker.display());
+    }
+    unclean
+}
+
+/// First thing in `on_exit`.
+pub fn clear_session_marker() {
+    if let Some(dir) = log_dir() {
+        clear_session_marker_in(&dir);
+    }
+}
+
+fn clear_session_marker_in(dir: &Path) {
+    let marker = dir.join(SESSION_MARKER);
+    if let Err(e) = fs::remove_file(&marker) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            log::warn!("could not remove {}: {e}", marker.display());
+        }
+    }
+}
 
 static LAUNCH: OnceLock<Instant> = OnceLock::new();
 
@@ -56,7 +103,7 @@ fn prune_old_logs(dir: &Path, keep: usize) {
 }
 
 fn builder() -> Builder {
-    let mut builder = Builder::from_env(Env::default().default_filter_or("warn"));
+    let mut builder = Builder::from_env(Env::default().default_filter_or(DEFAULT_FILTER));
     builder.format(|buf, record| {
         let ms = LAUNCH.get_or_init(Instant::now).elapsed().as_millis();
         writeln!(buf, "[{} {:<5}] {}", format_elapsed(ms), record.level(), record.args())
@@ -154,5 +201,25 @@ mod tests {
             ["log-20260102-000000.log", "log-20260103-000000.log", "notes.txt"]
         );
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_marker_left_behind_reports_an_unclean_exit() {
+        let dir = std::env::temp_dir().join(format!("bscm-markertest-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        assert!(!mark_session_start_in(&dir), "first run is clean");
+        assert!(mark_session_start_in(&dir), "no on_exit in between");
+        clear_session_marker_in(&dir);
+        assert!(!mark_session_start_in(&dir), "on_exit cleared it");
+        clear_session_marker_in(&dir);
+        clear_session_marker_in(&dir); // already gone: no error
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_info_filter_names_this_crate() {
+        // A crate rename would otherwise silently drop the filter back to warn.
+        assert!(DEFAULT_FILTER.ends_with(&format!("{}=info", env!("CARGO_CRATE_NAME"))));
     }
 }

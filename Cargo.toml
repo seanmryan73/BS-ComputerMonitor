@@ -1,6 +1,6 @@
 [package]
 name = "bc-computer-monitor"
-version = "2026.10.10"
+version = "2026.1020.0"   # YYYY.MMDD.N (vault Author-Version-Standards § Software)
 publish = false   # private app; lets cargo-deny skip its own licence field
 edition = "2021"
 rust-version = "1.96"
@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 eframe = { version = "0.29", default-features = false, features = [
+    "accesskit",   # screen readers (Narrator); vault Egui-UI-Standards § Accessibility
     "default_fonts",
     "glow",
     "persistence",

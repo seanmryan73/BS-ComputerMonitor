@@ -24,29 +24,22 @@ const RESET_CONFIRM_ID: &str = "about_reset_confirm";
 /// Vault About-Screen-Standards § Per-app mottos.
 const MOTTO: &str = "Because knowing your system is half the battle.";
 
-/// Display version derived from Cargo.toml so the two can't drift. Cargo
-/// rejects leading zeros in semver, so zero-pad month/day here (YYYY.MM.DD).
+/// Display version derived from Cargo.toml so the two can't drift.
 fn version_string() -> String {
     format!("v{}", pad_version(env!("CARGO_PKG_VERSION")))
 }
 
-/// `2026.8.15` -> `2026.08.15`, and a same-day letter, which Cargo can only spell as a SemVer
-/// prerelease, back to its display form: `2026.10.9-a` -> `2026.10.09a` (vault
-/// Author-Version-Standards § Version Format). The suffix is split off first: padding the third
-/// `.` part alone left `9-a` as it was. Any other prerelease (`-rc1`) is kept as written.
+/// `YYYY.MMDD.N`: Cargo rejects a leading zero, so January–September store `2026.109.0`; pad the
+/// middle field back to four digits (vault Author-Version-Standards § Software). Anything that
+/// isn't three numeric fields is returned unchanged. Replaced the `YYYY.MM.DD[-a]` helper
+/// 2026-10-20, which would have shown `2026.1020.0` as `2026.1020.00`.
 fn pad_version(cargo: &str) -> String {
-    let (core, pre) = cargo.split_once('-').map_or((cargo, None), |(c, p)| (c, Some(p)));
-    let mut parts = core.split('.');
-    let date = match (parts.next(), parts.next(), parts.next(), parts.next()) {
-        (Some(y), Some(m), Some(d), None) => format!("{y}.{m:0>2}.{d:0>2}"),
-        _ => return cargo.to_string(),
-    };
-    match pre {
-        Some(letter) if letter.len() == 1 && letter.chars().all(|c| c.is_ascii_lowercase()) => {
-            format!("{date}{letter}")
+    let parts: Vec<&str> = cargo.split('.').collect();
+    match parts.as_slice() {
+        [y, md, n] if [y, md, n].iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())) => {
+            format!("{y}.{md:0>4}.{n}")
         }
-        Some(other) => format!("{date}-{other}"),
-        None => date,
+        _ => cargo.to_string(),
     }
 }
 
@@ -459,6 +452,9 @@ fn visible_cards(ui: &mut Ui, look: &Look, card_vis: &Mutex<CardVisibility>) {
             changed |= toggle(ui, look, &mut vis.show_temp, "TEMP");
             changed |= toggle(ui, look, &mut vis.show_ping, "PING");
             ui.end_row();
+            changed |= toggle(ui, look, &mut vis.show_top_cpu, "TOP CPU");
+            changed |= toggle(ui, look, &mut vis.show_top_mem, "TOP MEM");
+            ui.end_row();
         });
     if changed {
         vis.save();
@@ -693,7 +689,7 @@ fn passthrough(ui: &mut Ui, look: &Look) {
 
 fn files(ui: &mut Ui, look: &Look) {
     let config = crate::app::config_path();
-    path_row(ui, look, "SETTINGS", Some(&config), config.parent());
+    path_row(ui, look, "SETTINGS", config.as_deref(), config.as_deref().and_then(Path::parent));
     ui.add_space(8.0);
     let logs = crate::logging::log_dir();
     path_row(ui, look, "LOGS", logs.as_deref(), logs.as_deref());
@@ -874,11 +870,12 @@ mod version_tests {
     use super::pad_version;
 
     #[test]
-    fn a_same_day_letter_displays_as_a_suffix_and_other_prereleases_stay() {
-        assert_eq!(pad_version("2026.8.15"), "2026.08.15");
-        assert_eq!(pad_version("2026.10.9-a"), "2026.10.09a");
-        assert_eq!(pad_version("2026.10.19-b"), "2026.10.19b");
-        assert_eq!(pad_version("2026.6.25-rc1"), "2026.06.25-rc1");
+    fn the_middle_field_pads_to_four_digits_and_anything_else_is_left_alone() {
+        assert_eq!(pad_version("2026.109.0"), "2026.0109.0");
+        assert_eq!(pad_version("2026.1009.1"), "2026.1009.1");
+        assert_eq!(pad_version("2026.1020.0"), "2026.1020.0");
+        assert_eq!(pad_version("2026.10.9-a"), "2026.10.9-a");
+        assert_eq!(pad_version("dev"), "dev");
     }
 }
 

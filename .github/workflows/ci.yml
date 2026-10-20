@@ -1,13 +1,25 @@
 name: CI
-on: [push, pull_request, workflow_dispatch]
+# Vault GitHub-Actions-Patterns.md § Rust, except the Format step: this repo has never been
+# formatted as a whole, so `cargo fmt --check` would fail on untouched code (AGENTS.md).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Toolchain (from rust-toolchain.toml)
         run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6   # v2.9.2
       - name: Build
         run: cargo build --locked
       - name: Clippy

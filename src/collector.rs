@@ -11,7 +11,8 @@ use std::{
 };
 
 use sysinfo::{
-    Components, CpuRefreshKind, Disks, MemoryRefreshKind, Networks, RefreshKind, System,
+    Components, CpuRefreshKind, Disks, MemoryRefreshKind, Networks, ProcessRefreshKind,
+    ProcessesToUpdate, RefreshKind, System,
 };
 
 use crate::{app::CardVisibility, models::*};
@@ -69,7 +70,22 @@ fn run(snapshot: Arc<RwLock<SystemSnapshot>>, card_vis: Arc<Mutex<CardVisibility
         #[cfg(not(windows))]
         let (gpu, acpi_cpu_temp) = (GpuSnapshot::default(), None::<f32>);
 
-        let new_snap = build(&sys, &disks, &networks, &components, gpu, acpi_cpu_temp, actual_secs, discard_rates);
+        // Enumerating every process costs a few ms, so only do it while a TOP card is on.
+        let want_procs = card_vis.lock().map(|g| g.show_top_cpu || g.show_top_mem).unwrap_or(false);
+        if want_procs {
+            sys.refresh_processes_specifics(
+                ProcessesToUpdate::All,
+                true,
+                ProcessRefreshKind::new().with_cpu().with_memory(),
+            );
+        }
+
+        let mut new_snap = build(&sys, &disks, &networks, &components, gpu, acpi_cpu_temp, actual_secs, discard_rates);
+        if want_procs {
+            let (top_cpu, top_mem) = top_processes(&sys, new_snap.cpu.logical_cores, TOP_N);
+            new_snap.top_cpu = top_cpu;
+            new_snap.top_mem = top_mem;
+        }
 
         if let Ok(mut guard) = snapshot.write() {
             *guard = new_snap;
@@ -192,6 +208,84 @@ fn build(
         disks: disk_list,
         network,
         temps,
+        top_cpu: Vec::new(),
+        top_mem: Vec::new(),
+    }
+}
+
+// ── Top processes ─────────────────────────────────────────────────────────────
+
+/// Rows kept in each TOP list (the tooltip shows all of them).
+const TOP_N: usize = 5;
+
+/// Heaviest processes by CPU and by memory, grouped by executable name.
+fn top_processes(sys: &System, logical_cores: usize, n: usize) -> (Vec<ProcEntry>, Vec<ProcEntry>) {
+    let rows = sys.processes().iter().map(|(pid, p)| {
+        (pid.as_u32(), p.name().to_string_lossy().into_owned(), p.cpu_usage(), p.memory())
+    });
+    let mut groups = group_processes(rows, logical_cores);
+
+    groups.sort_by_key(|e| std::cmp::Reverse(e.mem_bytes));
+    let top_mem = groups.iter().take(n).cloned().collect();
+    groups.sort_by(|a, b| b.cpu_pct.total_cmp(&a.cpu_pct));
+    groups.truncate(n);
+    (groups, top_mem)
+}
+
+/// Sums `(pid, name, cpu_per_core_pct, mem_bytes)` rows per name, dropping a
+/// trailing `.exe` and the idle process (pid 0). sysinfo reports CPU per core,
+/// so a busy process can read 800 % on 8 cores; dividing by the core count gives
+/// Task Manager's share of the whole machine.
+fn group_processes(
+    rows: impl Iterator<Item = (u32, String, f32, u64)>,
+    logical_cores: usize,
+) -> Vec<ProcEntry> {
+    let cores = logical_cores.max(1) as f32;
+    let mut by_name: std::collections::HashMap<String, ProcEntry> = std::collections::HashMap::new();
+    for (pid, name, cpu, mem) in rows {
+        if pid == 0 {
+            continue;
+        }
+        let name = match name.len().checked_sub(4) {
+            Some(i) if name.is_char_boundary(i) && name[i..].eq_ignore_ascii_case(".exe") => name[..i].to_owned(),
+            _ => name,
+        };
+        let e = by_name.entry(name.clone()).or_insert_with(|| ProcEntry { name, ..Default::default() });
+        e.count += 1;
+        e.cpu_pct += cpu / cores;
+        e.mem_bytes += mem;
+    }
+    by_name.into_values().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(pid: u32, name: &str, cpu: f32, mem: u64) -> (u32, String, f32, u64) {
+        (pid, name.to_owned(), cpu, mem)
+    }
+
+    #[test]
+    fn processes_group_by_name_and_scale_cpu_to_the_machine() {
+        let rows = vec![
+            row(0, "System Idle Process", 700.0, 0),
+            row(10, "chrome.exe", 40.0, 300),
+            row(11, "chrome.exe", 40.0, 200),
+            row(12, "Code.EXE", 8.0, 900),
+        ];
+        let mut g = group_processes(rows.into_iter(), 8);
+        g.sort_by(|a, b| a.name.cmp(&b.name));
+
+        assert_eq!(g.len(), 2, "idle process dropped, chrome merged");
+        assert_eq!(g[0], ProcEntry { name: "Code".into(), count: 1, cpu_pct: 1.0, mem_bytes: 900 });
+        assert_eq!(g[1], ProcEntry { name: "chrome".into(), count: 2, cpu_pct: 10.0, mem_bytes: 500 });
+    }
+
+    #[test]
+    fn zero_cores_does_not_divide_by_zero() {
+        let g = group_processes(vec![row(5, "a", 50.0, 1)].into_iter(), 0);
+        assert_eq!(g[0].cpu_pct, 50.0);
     }
 }
 

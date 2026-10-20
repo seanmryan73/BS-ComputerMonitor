@@ -4,7 +4,7 @@ use egui::{Align, Align2, Color32, FontFamily, FontId, Layout, Rect, Rounding, S
 
 use crate::{
     app::{CardVisibility, MonitorApp},
-    models::{fmt_bytes, fmt_bps_parts, FpsSnapshot, PingSnapshot, SystemSnapshot},
+    models::{fmt_bytes, fmt_bps_parts, FpsSnapshot, PingSnapshot, ProcEntry, SystemSnapshot},
 };
 
 use super::widgets::{bar_fill_gradient, glow_card, mini_sparkline};
@@ -36,6 +36,9 @@ pub fn show_grid(
             Some(snap.memory.usage_percent()), &compact_mem_sub(snap),
             &hist, 100.0, Some(app.peak_mem));
     }
+    // The TOP rows sit next to the totals they break down.
+    draw_card_anim(ui, app, 6, |ui, app| top_row(ui, app, snap, TopKind::Cpu, fs));
+    draw_card_anim(ui, app, 7, |ui, app| top_row(ui, app, snap, TopKind::Mem, fs));
     draw_card_anim(ui, app, 0, |ui, app| {
         let val  = compact_fps_val(fps);
         let col  = compact_fps_color(app, fps);
@@ -109,7 +112,7 @@ pub fn show_grid(
 
 /// Render an optional card with a height-collapse animation.
 ///
-/// `slot` indexes [fps=0, gpu=1, net=2, disk=3, temp=4, ping=5].
+/// `slot` indexes [fps=0, gpu=1, net=2, disk=3, temp=4, ping=5, top_cpu=6, top_mem=7].
 fn draw_card_anim<F>(ui: &mut Ui, app: &mut MonitorApp, slot: usize, draw_fn: F)
 where
     F: FnOnce(&mut Ui, &mut MonitorApp),
@@ -322,6 +325,111 @@ fn compact_mem_color(app: &MonitorApp, snap: &SystemSnapshot) -> Color32 {
 }
 fn compact_mem_sub(snap: &SystemSnapshot) -> String {
     format!("{} / {}", fmt_bytes(snap.memory.used_bytes), fmt_bytes(snap.memory.total_bytes))
+}
+
+// ── TOP CPU / TOP MEM ─────────────────────────────────────────────────────────
+
+#[derive(Clone, Copy, PartialEq)]
+enum TopKind { Cpu, Mem }
+
+impl TopKind {
+    fn fmt(self, e: &ProcEntry) -> String {
+        match self {
+            TopKind::Cpu if e.cpu_pct < 10.0 => format!("{:.1}%", e.cpu_pct),
+            TopKind::Cpu => format!("{:.0}%", e.cpu_pct),
+            TopKind::Mem => fmt_bytes(e.mem_bytes),
+        }
+    }
+}
+
+/// `name` cut to `max` chars with an ellipsis.
+fn short_name(name: &str, max: usize) -> String {
+    if name.chars().count() <= max { return name.to_owned(); }
+    let mut s: String = name.chars().take(max.saturating_sub(1)).collect();
+    s.push('…');
+    s
+}
+
+/// Names for the sub-line, "chrome ×24 · code · rustc", cut to `max_w` px: the first name is
+/// elided to fit, and #2/#3 are appended only while they fit whole.
+fn compact_top_sub(ui: &Ui, list: &[ProcEntry], max_w: f32, color: Color32) -> String {
+    let font = FontId::new(9.5, FontFamily::Proportional);
+    let width = |s: &str| ui.fonts(|f| f.layout_no_wrap(s.to_owned(), font.clone(), color).size().x);
+    let Some(first) = list.first() else { return String::new() };
+    let full = if first.count > 1 { format!("{} ×{}", first.name, first.count) } else { first.name.clone() };
+    let mut n = full.chars().count();
+    let mut sub = full.clone();
+    while n > 1 && width(&sub) > max_w {
+        n -= 1;
+        sub = short_name(&full, n);
+    }
+    for e in list.iter().skip(1).take(2) {
+        let more = format!("{sub} · {}", e.name);
+        if width(&more) > max_w { break; }
+        sub = more;
+    }
+    sub
+}
+
+/// One TOP row: #1's figure as the value, the leading names underneath, a top-5 table on hover.
+/// The value is a number only: at the larger value sizes a name beside it left no room.
+fn top_row(ui: &mut Ui, app: &MonitorApp, snap: &SystemSnapshot, kind: TopKind, fs: f32) {
+    let theme = &app.theme;
+    let (label, accent, list) = match kind {
+        TopKind::Cpu => ("TOP CPU", theme.accent_cpu, &snap.top_cpu),
+        TopKind::Mem => ("TOP MEM", theme.accent_mem, &snap.top_mem),
+    };
+
+    let (val, col, bar, sub) = match list.first() {
+        None => ("—".to_owned(), accent, None, "waiting…".to_owned()),
+        Some(e) => {
+            let pct = match kind {
+                TopKind::Cpu => e.cpu_pct,
+                TopKind::Mem if snap.memory.total_bytes > 0 =>
+                    e.mem_bytes as f32 / snap.memory.total_bytes as f32 * 100.0,
+                TopKind::Mem => 0.0,
+            };
+            let (warn, crit) = if kind == TopKind::Cpu { (60.0, 85.0) } else { (70.0, 90.0) };
+            let col = if pct >= crit { theme.crit } else if pct >= warn { theme.warn } else { accent };
+            let val = kind.fmt(e);
+            // The sub-line sits left of the value: what's left after it, a gap and frame padding.
+            let val_w = ui.fonts(|f| {
+                f.layout_no_wrap(val.clone(), FontId::new(fs, FontFamily::Monospace), col).size().x
+            });
+            let max_sub_w = (ui.available_width() - val_w - 36.0).max(20.0);
+            let sub = compact_top_sub(ui, list, max_sub_w, theme.text_subtle);
+            (val, col, Some(pct), sub)
+        }
+    };
+
+    let top = ui.cursor().top();
+    compact_row(ui, theme, label, accent, &val, col, fs, bar, &sub, &[], 100.0, None);
+    let rect = Rect::from_min_max(
+        egui::pos2(ui.max_rect().left(), top),
+        egui::pos2(ui.max_rect().right(), ui.cursor().top()),
+    );
+    if list.is_empty() { return; }
+    ui.interact(rect, ui.id().with(label), Sense::hover())
+        .on_hover_ui(|ui| top_tooltip(ui, theme, kind, list));
+}
+
+fn top_tooltip(ui: &mut Ui, theme: &crate::theme::Theme, kind: TopKind, list: &[ProcEntry]) {
+    use egui::RichText;
+    let mono = |s: String| RichText::new(s).monospace().color(theme.text_primary);
+    egui::Grid::new(("top_tooltip", kind == TopKind::Cpu))
+        .num_columns(3)
+        .spacing([14.0, 2.0])
+        .show(ui, |ui| {
+            for (i, e) in list.iter().enumerate() {
+                ui.label(mono(format!("{}. {}", i + 1, e.name)));
+                ui.label(mono(if e.count > 1 { format!("×{}", e.count) } else { String::new() }));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.label(mono(kind.fmt(e))));
+                ui.end_row();
+            }
+        });
+    if kind == TopKind::Mem {
+        ui.label(RichText::new("Working set, summed per name").small().color(theme.text_primary));
+    }
 }
 
 // UI apps (editors, browsers) render at 1–5 fps via DXGI and get captured by WGC/ETW.

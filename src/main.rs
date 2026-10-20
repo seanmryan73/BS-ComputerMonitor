@@ -1,9 +1,8 @@
 // Author  : Sean Ryan <seanmryan@gmail.com>
 // Company : BagPipes
-// Version : 2026.10.09
+// Version : 2026.10.20
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#![allow(dead_code, unused_variables, unused_imports)]
 
 mod app;
 mod collector;
@@ -68,13 +67,15 @@ fn main() -> eframe::Result<()> {
     logging::install_panic_hook();
 
     if !single_instance_or_focus_existing() {
-        log::info!("another instance is already running — exiting");
+        // warn, so this launch's otherwise banner-only log says why it ended.
+        log::warn!("another instance is already running — focused it and exiting");
         return Ok(());
     }
+    logging::mark_session_start();
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("BS Computer Monitor")
+            .with_title(app_display_name())
             .with_inner_size([350.0, 400.0])
             .with_min_inner_size([110.0, 200.0])
             .with_decorations(false)

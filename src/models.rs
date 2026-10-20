@@ -15,6 +15,23 @@ pub struct SystemSnapshot {
     pub disks: Vec<DiskSnapshot>,
     pub network: NetworkSnapshot,
     pub temps: TempSnapshot,
+    /// Heaviest processes by CPU, grouped by name; empty while both TOP cards are hidden.
+    pub top_cpu: Vec<ProcEntry>,
+    /// Heaviest processes by working set, grouped by name.
+    pub top_mem: Vec<ProcEntry>,
+}
+
+// ── Processes ─────────────────────────────────────────────────────────────────
+
+/// All running processes that share one executable name, summed.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ProcEntry {
+    pub name: String,
+    pub count: u32,
+    /// Share of total CPU capacity (0–100), like Task Manager.
+    pub cpu_pct: f32,
+    /// Summed working set — counts shared pages once per process.
+    pub mem_bytes: u64,
 }
 
 // ── CPU ───────────────────────────────────────────────────────────────────────

@@ -12,11 +12,56 @@ use crate::{
     ui,
 };
 
-pub(crate) fn config_path() -> std::path::PathBuf {
-    let base = std::env::var("APPDATA")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::path::PathBuf::from("."));
-    base.join("BCComputerMonitor").join("config.json")
+/// `None` when `APPDATA` is unset: settings then live for the session only. Never `.`, which
+/// would write into the install folder (vault Rust-Desktop-Standards § checklist).
+pub(crate) fn config_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("APPDATA")
+        .map(|d| std::path::PathBuf::from(d).join("BCComputerMonitor").join("config.json"))
+}
+
+static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Writes via a flushed temp file and a rename, so a full disk, a kill or a power cut leaves the
+/// old file intact. `std::fs::write` truncates first. From vault Rust-Persistence-Patterns.md.
+pub(crate) fn write_atomic(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(dir) = path.parent() { std::fs::create_dir_all(dir)?; }
+
+    // Append a suffix, never `with_extension()`; pid + counter keep concurrent writers apart.
+    let mut tmp_name = path.as_os_str().to_os_string();
+    tmp_name.push(format!(
+        ".tmp{}.{}",
+        std::process::id(),
+        TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let tmp = std::path::PathBuf::from(tmp_name);
+
+    {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(contents.as_bytes())?;
+        f.sync_all()?;
+    }
+    // rename replaces the target on Windows; no remove-then-rename fallback (it deletes the good file).
+    let result = std::fs::rename(&tmp, path);
+    if result.is_err() { let _ = std::fs::remove_file(&tmp); }
+    result
+}
+
+/// "theme_id: \"Jizo\" -> \"Washi\"" for each top-level key that differs; for the info log line.
+fn describe_changes(before: Option<&str>, after: &str) -> String {
+    let parse = |s: &str| serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(s).ok();
+    let (Some(old), Some(new)) = (before.and_then(parse), parse(after)) else {
+        return "new file".into();
+    };
+    let changes: Vec<String> = new
+        .iter()
+        .filter(|(k, v)| old.get(*k) != Some(*v))
+        .map(|(k, v)| match old.get(k) {
+            Some(o) => format!("{k}: {o} -> {v}"),
+            None => format!("{k}: {v}"),
+        })
+        .collect();
+    if changes.is_empty() { "no changes".into() } else { changes.join(", ") }
 }
 
 /// Persisted user config — card visibility + window opacity + display mode.
@@ -47,6 +92,26 @@ pub struct CardVisibility {
     pub theme_id: ThemeId,
     #[serde(default = "default_ping_target")]
     pub ping_target: String,
+    /// Off when missing from an existing config.json, so an upgrade doesn't grow the window;
+    /// a first run gets them on through `Default`.
+    #[serde(default)]
+    pub show_top_cpu: bool,
+    #[serde(default)]
+    pub show_top_mem: bool,
+}
+
+/// Number of optional cards — one animation slot each, in [`CardVisibility::shown`] order.
+pub const N_OPTIONAL: usize = 8;
+
+impl CardVisibility {
+    /// Visibility of the optional cards by slot:
+    /// [fps, gpu, net, disk, temp, ping, top_cpu, top_mem].
+    pub fn shown(&self) -> [bool; N_OPTIONAL] {
+        [
+            self.show_fps, self.show_gpu, self.show_net, self.show_disk,
+            self.show_temp, self.show_ping, self.show_top_cpu, self.show_top_mem,
+        ]
+    }
 }
 
 fn default_opacity() -> f32 { 1.0 }
@@ -55,27 +120,20 @@ fn default_net_cap_mbps() -> f32 { 1000.0 }
 fn default_true() -> bool { true }
 fn default_ping_target() -> String { "1.1.1.1".into() }
 
-/// Per-card collapse animation state for the 6 optional cards [fps, gpu, net, disk, temp, ping].
+/// Per-card collapse animation state for the optional cards, slotted as [`CardVisibility::shown`].
 pub struct CardAnim {
     /// Visual scale: 0.0 = fully collapsed/hidden, 1.0 = fully shown.
-    pub scale:  [f32; 6],
+    pub scale:  [f32; N_OPTIONAL],
     /// Last measured card content height (px, excluding item_spacing) — used as
     /// the collapse target so surrounding cards slide smoothly as this one shrinks.
-    pub height: [f32; 6],
+    pub height: [f32; N_OPTIONAL],
 }
 
 impl CardAnim {
     fn new(vis: &CardVisibility) -> Self {
         Self {
-            scale: [
-                if vis.show_fps  { 1.0 } else { 0.0 },
-                if vis.show_gpu  { 1.0 } else { 0.0 },
-                if vis.show_net  { 1.0 } else { 0.0 },
-                if vis.show_disk { 1.0 } else { 0.0 },
-                if vis.show_temp { 1.0 } else { 0.0 },
-                if vis.show_ping { 1.0 } else { 0.0 },
-            ],
-            height: [95.0; 6],
+            scale: vis.shown().map(|s| if s { 1.0 } else { 0.0 }),
+            height: [95.0; N_OPTIONAL],
         }
     }
 }
@@ -93,13 +151,18 @@ impl Default for CardVisibility {
             net_cap_mbps: 1000.0,
             theme_id: ThemeId::ColdSteel,
             ping_target: "1.1.1.1".into(),
+            show_top_cpu: true,
+            show_top_mem: true,
         }
     }
 }
 
 impl CardVisibility {
     pub fn load() -> Self {
-        let path = config_path();
+        let Some(path) = config_path() else {
+            log::warn!("APPDATA is not set; using default settings for this session");
+            return Self::default();
+        };
         // A missing file is normal (first run); a parse failure means the file is
         // corrupt — warn so the user knows why their settings reset.
         let Ok(s) = std::fs::read_to_string(&path) else { return Self::default() };
@@ -110,12 +173,21 @@ impl CardVisibility {
     }
 
     pub fn save(&self) {
-        let path = config_path();
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = std::fs::write(path, json);
+        let Some(path) = config_path() else {
+            log::warn!("APPDATA is not set; settings not saved");
+            return;
+        };
+        let json = match serde_json::to_string_pretty(self) {
+            Ok(j) => j,
+            Err(e) => {
+                log::warn!("could not serialise settings: {e}");
+                return;
+            }
+        };
+        let before = std::fs::read_to_string(&path).ok();
+        match write_atomic(&path, &json) {
+            Ok(()) => log::info!("settings saved: {}", describe_changes(before.as_deref(), &json)),
+            Err(e) => log::warn!("could not save settings to {}: {e}", path.display()),
         }
     }
 }
@@ -153,7 +225,7 @@ pub struct MonitorApp {
     pub card_anim: CardAnim,
     /// Tracks which optional cards were shown last frame so we can snap the
     /// window height whenever a card is added or removed.
-    prev_shown_cards: [bool; 6],
+    prev_shown_cards: [bool; N_OPTIONAL],
     /// Tracks the compact font size so a window resize fires when the slider moves.
     prev_compact_font_size: f32,
     /// True on the very first frame — fires the initial window size snap.
@@ -193,10 +265,13 @@ impl MonitorApp {
         let ping_target_shared = Arc::new(RwLock::new(vis_init.ping_target.clone()));
         ping_collector::start(Arc::clone(&ping), Arc::clone(&ping_target_shared));
         let card_anim_init  = CardAnim::new(&vis_init);
-        let prev_shown_init = [
-            vis_init.show_fps, vis_init.show_gpu, vis_init.show_net,
-            vis_init.show_disk, vis_init.show_temp, vis_init.show_ping,
-        ];
+        let prev_shown_init = vis_init.shown();
+        log::info!(
+            "monitor started: elevated={}, theme {}, {} of {N_OPTIONAL} optional cards shown",
+            check_elevated(),
+            vis_init.theme_id.label(),
+            prev_shown_init.iter().filter(|&&s| s).count()
+        );
         let prev_font_size_init = vis_init.compact_font_size;
 
         // Create card_vis Arc before starting the collector so it can read the selected GPU.
@@ -288,8 +363,7 @@ impl MonitorApp {
     pub fn advance_card_anims(&mut self, dt: f32, vis: &CardVisibility) {
         const CARD_SPD: f32 = 5.0;  // 200 ms full collapse/expand
         let step = dt * CARD_SPD;
-        let shows = [vis.show_fps, vis.show_gpu, vis.show_net, vis.show_disk, vis.show_temp, vis.show_ping];
-        for (i, &show) in shows.iter().enumerate() {
+        for (i, &show) in vis.shown().iter().enumerate() {
             move_toward(&mut self.card_anim.scale[i], if show { 1.0 } else { 0.0 }, step);
         }
     }
@@ -306,7 +380,7 @@ fn move_toward(val: &mut f32, target: f32, step: f32) {
 /// Formula: titlebar(36) + panel_margins(24) + n_cards × row_height + (n_cards−1) × item_spacing
 /// where row_height = card_content(font_size+12, min 24) + frame_overhead(14).
 fn compact_window_height(vis: &CardVisibility) -> f32 {
-    let n_optional = [vis.show_fps, vis.show_gpu, vis.show_net, vis.show_disk, vis.show_temp, vis.show_ping]
+    let n_optional = vis.shown()
         .iter()
         .filter(|&&x| x)
         .count();
@@ -479,10 +553,7 @@ impl eframe::App for MonitorApp {
         }
 
         // Snap height when individual cards are toggled.
-        let cur_shown = [
-            vis_snap.show_fps, vis_snap.show_gpu, vis_snap.show_net,
-            vis_snap.show_disk, vis_snap.show_temp, vis_snap.show_ping,
-        ];
+        let cur_shown = vis_snap.shown();
         if cur_shown != self.prev_shown_cards {
             self.prev_shown_cards = cur_shown;
             let cur_w = ctx.input(|i| i.viewport().inner_rect)
@@ -557,5 +628,67 @@ impl eframe::App for MonitorApp {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         // Stop the ETW trace session — it is a kernel object that outlives the process.
         crate::fps_collector::shutdown();
+        log::info!("exiting cleanly");
+        crate::logging::clear_session_marker();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch_dir(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("bscm-test-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        d
+    }
+
+    #[test]
+    fn write_atomic_replaces_the_file_and_leaves_no_temp() {
+        let dir = scratch_dir("atomic");
+        let path = dir.join("config.json");
+        write_atomic(&path, "one").unwrap();
+        write_atomic(&path, "two").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "two");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "temp file left behind");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_atomic_failure_keeps_the_original() {
+        let dir = scratch_dir("atomic-fail");
+        let path = dir.join("config.json");
+        write_atomic(&path, "good").unwrap();
+        // A directory where the target should be: the rename must fail, not delete anything.
+        let blocked = dir.join("blocked");
+        std::fs::create_dir_all(blocked.join("x")).unwrap();
+        assert!(write_atomic(&blocked, "bad").is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "good");
+        assert!(blocked.join("x").is_dir());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn describe_changes_names_only_what_changed() {
+        let before = r#"{"theme_id":"Jizo","opacity":0.95}"#;
+        let after = r#"{"theme_id":"Washi","opacity":0.95,"show_top_cpu":true}"#;
+        assert_eq!(
+            describe_changes(Some(before), after),
+            // serde_json's Map sorts keys (no preserve_order feature).
+            r#"show_top_cpu: true, theme_id: "Jizo" -> "Washi""#
+        );
+        assert_eq!(describe_changes(Some(after), after), "no changes");
+        assert_eq!(describe_changes(None, after), "new file");
+    }
+
+    #[test]
+    fn top_cards_stay_off_for_an_existing_config_but_on_for_a_first_run() {
+        let old: CardVisibility = serde_json::from_str(
+            r#"{"show_fps":true,"show_gpu":true,"show_net":true,"show_disk":true,"show_temp":true}"#,
+        )
+        .unwrap();
+        assert!(!old.show_top_cpu && !old.show_top_mem);
+        let fresh = CardVisibility::default();
+        assert!(fresh.show_top_cpu && fresh.show_top_mem);
     }
 }
