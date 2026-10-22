@@ -13,6 +13,7 @@ egui/eframe Windows desktop system monitor. Displays CPU, GPU, memory, disk, and
 
 @c:\_repos\Obsidian\Notes\Claude\Reference\Author-Version-Standards.md
 @c:\_repos\Obsidian\Notes\Claude\Reference\Core-Rules.md
+@c:\_repos\Obsidian\Notes\Claude\Reference\Core-Rules-Rust.md
 @c:\_repos\Obsidian\Notes\Claude\Projects\BS-ComputerMonitor Claude Context.md
 
 ## Read before you…
