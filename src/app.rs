@@ -103,6 +103,11 @@ pub struct CardVisibility {
 /// Number of optional cards — one animation slot each, in [`CardVisibility::shown`] order.
 pub const N_OPTIONAL: usize = 8;
 
+/// Repaint delay for ambient effects (warn/crit pulse, armed passthrough). egui subtracts a
+/// predicted frame time (~16 ms) from any `request_repaint_after`, so a short delay here
+/// becomes a repaint every vsync — a 33 ms pulse cost ~60 fps of full redraws.
+pub const AMBIENT_REPAINT: std::time::Duration = std::time::Duration::from_millis(100);
+
 impl CardVisibility {
     /// Visibility of the optional cards by slot:
     /// [fps, gpu, net, disk, temp, ping, top_cpu, top_mem].
@@ -231,6 +236,8 @@ pub struct MonitorApp {
     /// True on the very first frame — fires the initial window size snap.
     startup_resize_pending: bool,
     prev_theme_id: ThemeId,
+    /// Frames drawn since the last history tick — logged at debug to watch the repaint rate.
+    frames_since_tick: u32,
 
     /// Session-high watermarks — reset on app restart, used for peak ticks in compact mode.
     pub peak_cpu:    f32,
@@ -312,6 +319,7 @@ impl MonitorApp {
             prev_compact_font_size: prev_font_size_init,
             startup_resize_pending: true,
             prev_theme_id: initial_theme_id,
+            frames_since_tick: 0,
             peak_cpu:    0.0,
             peak_mem:    0.0,
             peak_gpu:    0.0,
@@ -474,11 +482,13 @@ impl eframe::App for MonitorApp {
             }
         }
 
-        // Repaint at 60 fps only while card animations are running or passthrough mode
-        // is armed (needs fast Ctrl-key polling). Otherwise 500 ms is plenty for stats.
+        // Repaint at 60 fps only while card animations are running. Armed passthrough mode
+        // polls the Ctrl key every ~100 ms. Otherwise 500 ms is plenty for stats.
         let any_anim = self.card_anim.scale.iter().any(|&s| s > 0.001 && s < 0.999);
-        if any_anim || vis_snap.passthrough_mode {
+        if any_anim {
             ctx.request_repaint();
+        } else if vis_snap.passthrough_mode {
+            ctx.request_repaint_after(AMBIENT_REPAINT);
         } else {
             ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
@@ -614,7 +624,13 @@ impl eframe::App for MonitorApp {
         }
 
         // Gate history pushes to match the background collector interval
+        self.frames_since_tick += 1;
         if self.last_tick.elapsed() >= crate::collector::INTERVAL {
+            log::debug!(
+                "ui: {:.1} frames/s",
+                self.frames_since_tick as f32 / self.last_tick.elapsed().as_secs_f32()
+            );
+            self.frames_since_tick = 0;
             self.tick_histories(&snap, &fps_snap, &ping_snap);
             self.last_tick = std::time::Instant::now();
         }
@@ -641,6 +657,14 @@ mod tests {
         let d = std::env::temp_dir().join(format!("bscm-test-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
+    }
+
+    #[test]
+    fn ambient_repaint_stays_well_above_a_frame() {
+        // egui takes ~one 60 Hz frame off the delay; what remains must still be several
+        // frames, or the window redraws at vsync rate while a card pulses.
+        let frame = std::time::Duration::from_secs_f32(1.0 / 60.0);
+        assert!(AMBIENT_REPAINT.saturating_sub(frame) >= frame * 4);
     }
 
     #[test]

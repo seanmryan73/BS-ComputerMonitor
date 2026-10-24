@@ -297,8 +297,8 @@ fn compact_row(
                 );
             }
         }
-        // ~30 fps is enough for the pulse and keeps the idle repaint budget in check.
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
+        // ~10 fps is plenty for a 1 Hz pulse; see AMBIENT_REPAINT for why it isn't shorter.
+        ui.ctx().request_repaint_after(crate::app::AMBIENT_REPAINT);
     }
 }
 

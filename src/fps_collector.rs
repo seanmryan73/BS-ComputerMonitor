@@ -92,6 +92,8 @@ mod inner {
     struct EtwState {
         presents: Mutex<HashMap<u32, PresentEntry>>,
         own_pid: u32,
+        /// Every callback, kept or not — logged at debug to watch the event volume.
+        events: std::sync::atomic::AtomicU64,
     }
 
     // Called on the ProcessTrace thread — must be fast.
@@ -100,6 +102,8 @@ mod inner {
             return;
         }
         let r = &*record;
+        let state = &*(r.UserContext as *const EtwState);
+        state.events.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let pid = r.EventHeader.ProcessId;
         if pid == 0 || pid == 4 {
@@ -126,7 +130,6 @@ mod inner {
             return;
         }
 
-        let state = &*(r.UserContext as *const EtwState);
         if pid == state.own_pid {
             return;
         }
@@ -261,6 +264,7 @@ mod inner {
         let state = Arc::new(EtwState {
             presents: Mutex::new(HashMap::new()),
             own_pid: std::process::id(),
+            events: std::sync::atomic::AtomicU64::new(0),
         });
         // Leak an Arc ref for the callback's UserContext; reclaimed when ProcessTrace exits.
         let ctx = Arc::into_raw(Arc::clone(&state)) as *mut c_void;
@@ -303,6 +307,8 @@ mod inner {
         // card reflects what the user is actively running.
         loop {
             thread::sleep(Duration::from_secs(1));
+            let events = state.events.swap(0, std::sync::atomic::Ordering::Relaxed);
+            log::debug!("etw: {events} events/s");
             let now = Instant::now();
             let fg_pid = foreground_pid(unsafe { GetForegroundWindow() })
                 .filter(|&pid| pid != state.own_pid);

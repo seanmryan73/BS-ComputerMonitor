@@ -62,6 +62,7 @@ fn run(snapshot: Arc<RwLock<SystemSnapshot>>, card_vis: Arc<Mutex<CardVisibility
         disks.refresh();
         networks.refresh();
         components.refresh();
+        let t_sys = tick.elapsed();
 
         #[cfg(windows)]
         let selected_gpu = card_vis.lock().map(|g| g.selected_gpu_index).unwrap_or(0);
@@ -69,6 +70,7 @@ fn run(snapshot: Arc<RwLock<SystemSnapshot>>, card_vis: Arc<Mutex<CardVisibility
         let (gpu, acpi_cpu_temp) = gpu_win::collect(&mut gpu_col, selected_gpu);
         #[cfg(not(windows))]
         let (gpu, acpi_cpu_temp) = (GpuSnapshot::default(), None::<f32>);
+        let t_gpu = tick.elapsed();
 
         // Enumerating every process costs a few ms, so only do it while a TOP card is on.
         let want_procs = card_vis.lock().map(|g| g.show_top_cpu || g.show_top_mem).unwrap_or(false);
@@ -92,6 +94,13 @@ fn run(snapshot: Arc<RwLock<SystemSnapshot>>, card_vis: Arc<Mutex<CardVisibility
         }
 
         let elapsed = tick.elapsed();
+        log::debug!(
+            "collector tick: sysinfo {:?}, gpu+temps {:?}, processes {:?}, total {:?}",
+            t_sys,
+            t_gpu - t_sys,
+            elapsed - t_gpu,
+            elapsed
+        );
         if elapsed < INTERVAL {
             thread::sleep(INTERVAL - elapsed);
         }
@@ -452,8 +461,10 @@ mod gpu_win {
         // Filter utilization/VRAM to the selected adapter so multi-GPU numbers
         // match the name/VRAM-total shown; both fall back to all adapters when
         // the LUID doesn't appear in the counter instances.
+        let t0 = std::time::Instant::now();
         let utilization = col.pdh.as_ref().and_then(|p| pdh_read_util(p, luid));
         let vram_used   = col.pdh.as_ref().map_or(0, |p| pdh_read_vram_used(p, luid));
+        let t_pdh = t0.elapsed();
 
         let available_names: Vec<String> = col.adapter_descs.iter().map(|(n, _, _)| n.clone()).collect();
 
@@ -466,9 +477,17 @@ mod gpu_win {
             available:           !col.adapter_descs.is_empty() || !col.cached_name.is_empty(),
             available_names,
         };
+        let t_lhm = t0.elapsed();
         let cpu_temp = col.pdh.as_ref()
             .and_then(pdh_read_temp)
             .or_else(|| query_acpi_cpu_temp(col));
+        log::debug!(
+            "gpu: pdh read {:?} ({} engine instances), lhm wmi {:?}, cpu temp {:?}",
+            t_pdh,
+            col.pdh.as_ref().and_then(|p| pdh_counter_doubles(p.util_counter)).map_or(0, |v| v.len()),
+            t_lhm - t_pdh,
+            t0.elapsed() - t_lhm
+        );
         (gpu, cpu_temp)
     }
 
