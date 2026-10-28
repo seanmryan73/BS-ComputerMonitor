@@ -1,3 +1,6 @@
+// Author  : Sean Ryan <seanmryan@gmail.com>
+// Company : BagPipes
+
 //! Settings / Help / About — separate opaque OS window that pops out to the left of the main window.
 //!
 //! Three tabs, each a stack of collapsible sections. The Reset / Close row is pinned below the
@@ -24,23 +27,11 @@ const RESET_CONFIRM_ID: &str = "about_reset_confirm";
 /// Vault About-Screen-Standards § Per-app mottos.
 const MOTTO: &str = "Because knowing your system is half the battle.";
 
-/// Display version derived from Cargo.toml so the two can't drift.
+/// Display version, exactly as built: the same string as Cargo.toml, the tag and the log banner
+/// (vault Author-Version-Standards § Software). A `pad_version` helper showed `2026.109.0` as
+/// `2026.0109.0` until 2026-10-28; the standard now shows it unpadded.
 fn version_string() -> String {
-    format!("v{}", pad_version(env!("CARGO_PKG_VERSION")))
-}
-
-/// `YYYY.MMDD.N`: Cargo rejects a leading zero, so January–September store `2026.109.0`; pad the
-/// middle field back to four digits (vault Author-Version-Standards § Software). Anything that
-/// isn't three numeric fields is returned unchanged. Replaced the `YYYY.MM.DD[-a]` helper
-/// 2026-10-20, which would have shown `2026.1020.0` as `2026.1020.00`.
-fn pad_version(cargo: &str) -> String {
-    let parts: Vec<&str> = cargo.split('.').collect();
-    match parts.as_slice() {
-        [y, md, n] if [y, md, n].iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())) => {
-            format!("{y}.{md:0>4}.{n}")
-        }
-        _ => cargo.to_string(),
-    }
+    format!("v{}", env!("CARGO_PKG_VERSION"))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -863,20 +854,6 @@ fn tint(c: Color32, alpha: u8) -> Color32 {
 fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
     let ch = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t).round() as u8;
     Color32::from_rgb(ch(a.r(), b.r()), ch(a.g(), b.g()), ch(a.b(), b.b()))
-}
-
-#[cfg(test)]
-mod version_tests {
-    use super::pad_version;
-
-    #[test]
-    fn the_middle_field_pads_to_four_digits_and_anything_else_is_left_alone() {
-        assert_eq!(pad_version("2026.109.0"), "2026.0109.0");
-        assert_eq!(pad_version("2026.1009.1"), "2026.1009.1");
-        assert_eq!(pad_version("2026.1020.0"), "2026.1020.0");
-        assert_eq!(pad_version("2026.10.9-a"), "2026.10.9-a");
-        assert_eq!(pad_version("dev"), "dev");
-    }
 }
 
 #[cfg(test)]

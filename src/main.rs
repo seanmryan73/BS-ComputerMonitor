@@ -1,6 +1,5 @@
 // Author  : Sean Ryan <seanmryan@gmail.com>
 // Company : BagPipes
-// Version : 2026.10.20
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 

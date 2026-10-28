@@ -1,3 +1,6 @@
+// Author  : Sean Ryan <seanmryan@gmail.com>
+// Company : BagPipes
+
 //! UI rendering — called once per frame from [`crate::app::MonitorApp::update`].
 
 mod about;

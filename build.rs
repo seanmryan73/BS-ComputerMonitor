@@ -1,3 +1,6 @@
+// Author  : Sean Ryan <seanmryan@gmail.com>
+// Company : BagPipes
+
 // Generates assets/icon.ico from the same pixel art as the runtime window
 // and tray icons (src/icon_art.rs) and embeds it as the .exe's PE resource
 // icon, so Start menu / taskbar pins show the app icon instead of a blank one.

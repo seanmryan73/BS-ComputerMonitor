@@ -1,3 +1,6 @@
+// Author  : Sean Ryan <seanmryan@gmail.com>
+// Company : BagPipes
+
 //! Background data-collection thread.
 //!
 //! Spawns a single OS thread that refreshes sysinfo every 2 seconds and writes
@@ -45,8 +48,13 @@ fn run(snapshot: Arc<RwLock<SystemSnapshot>>, card_vis: Arc<Mutex<CardVisibility
     thread::sleep(Duration::from_millis(700));
 
     let mut prev_tick = Instant::now();
+    let mut last_heartbeat = Instant::now();
 
     loop {
+        if last_heartbeat.elapsed() >= crate::logging::HEARTBEAT {
+            crate::logging::touch_session_marker();
+            last_heartbeat = Instant::now();
+        }
         let tick = Instant::now();
         // Actual time since last refresh — used for accurate bytes/sec. A gap far
         // beyond the interval means the machine slept: sysinfo's byte deltas then
@@ -481,11 +489,16 @@ mod gpu_win {
         let cpu_temp = col.pdh.as_ref()
             .and_then(pdh_read_temp)
             .or_else(|| query_acpi_cpu_temp(col));
+        // Without an LHM connection there is no query, so a timing would read as a fast success.
+        let lhm = if col.lhm_conn.is_some() {
+            format!("lhm wmi {:?}", t_lhm - t_pdh)
+        } else {
+            "lhm: not running".to_owned()
+        };
         log::debug!(
-            "gpu: pdh read {:?} ({} engine instances), lhm wmi {:?}, cpu temp {:?}",
+            "gpu: pdh read {:?} ({} engine instances), {lhm}, cpu temp {:?}",
             t_pdh,
             col.pdh.as_ref().and_then(|p| pdh_counter_doubles(p.util_counter)).map_or(0, |v| v.len()),
-            t_lhm - t_pdh,
             t0.elapsed() - t_lhm
         );
         (gpu, cpu_temp)

@@ -1,3 +1,6 @@
+// Author  : Sean Ryan <seanmryan@gmail.com>
+// Company : BagPipes
+
 //! Reusable low-level widgets: sparkline, card frame, glow card.
 
 use egui::{

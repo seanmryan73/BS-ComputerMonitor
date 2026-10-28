@@ -1,3 +1,6 @@
+// Author  : Sean Ryan <seanmryan@gmail.com>
+// Company : BagPipes
+
 //! Root application struct — owns shared state and drives the UI each frame.
 
 use std::sync::{Arc, Mutex, RwLock};
@@ -15,8 +18,34 @@ use crate::{
 /// `None` when `APPDATA` is unset: settings then live for the session only. Never `.`, which
 /// would write into the install folder (vault Rust-Desktop-Standards § checklist).
 pub(crate) fn config_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("APPDATA").map(|d| {
+        std::path::PathBuf::from(d).join(crate::logging::APP_DIR).join("config.json")
+    })
+}
+
+/// Where settings lived until 2026-10-28, beside logs under a different name (`BS…`).
+fn legacy_config_path() -> Option<std::path::PathBuf> {
     std::env::var_os("APPDATA")
         .map(|d| std::path::PathBuf::from(d).join("BCComputerMonitor").join("config.json"))
+}
+
+/// Moves the legacy config over `path`, then renames it to `config.json.migrated` so it never
+/// runs twice. The legacy file wins over anything already at `path`: a pre-rename build left a
+/// stale config there that nothing has read since June 2026. Returns whether it moved a file.
+fn migrate_config(legacy: &std::path::Path, path: &std::path::Path) -> std::io::Result<bool> {
+    let contents = match std::fs::read_to_string(legacy) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(e),
+    };
+    write_atomic(path, &contents)?;
+    let mut done = legacy.as_os_str().to_os_string();
+    done.push(".migrated");
+    // If it can't be renamed it must still go: a second run would copy it over newer edits.
+    if let Err(e) = std::fs::rename(legacy, done) {
+        std::fs::remove_file(legacy).map_err(|_| e)?;
+    }
+    Ok(true)
 }
 
 static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -108,6 +137,28 @@ pub const N_OPTIONAL: usize = 8;
 /// becomes a repaint every vsync — a 33 ms pulse cost ~60 fps of full redraws.
 pub const AMBIENT_REPAINT: std::time::Duration = std::time::Duration::from_millis(100);
 
+/// Shortest gap between two frames of one viewport (60 fps). eframe redraws once per input event
+/// and vsync did not cap it: moving the mouse over the window drew 191 frames/s on a 144 Hz
+/// display (297 with a 1000 Hz mouse) at ~3 ms of CPU each, half a core (2026-10-28).
+pub const MIN_FRAME: std::time::Duration = std::time::Duration::from_micros(16_667);
+
+/// Call first in the root viewport's frame: sleeps out the rest of [`MIN_FRAME`] since its
+/// previous frame. Input queued meanwhile arrives together in the next frame.
+///
+/// Not in the Settings viewport: sleeping there while the mouse moved over it kept winit's queue
+/// busy, so the main window's timed repaint never fired and the cards froze for 7 s (measured
+/// 2026-10-28). Unpaced, hovering Settings costs ~1/3 of a core while the mouse moves.
+pub fn pace_frame(ctx: &Context) {
+    let id = egui::Id::new("frame_pacer").with(ctx.viewport_id());
+    if let Some(last) = ctx.data(|d| d.get_temp::<std::time::Instant>(id)) {
+        let since = last.elapsed();
+        if since < MIN_FRAME {
+            std::thread::sleep(MIN_FRAME - since);
+        }
+    }
+    ctx.data_mut(|d| d.insert_temp(id, std::time::Instant::now()));
+}
+
 impl CardVisibility {
     /// Visibility of the optional cards by slot:
     /// [fps, gpu, net, disk, temp, ping, top_cpu, top_mem].
@@ -168,8 +219,23 @@ impl CardVisibility {
             log::warn!("APPDATA is not set; using default settings for this session");
             return Self::default();
         };
+        let mut read_from = path.clone();
+        if let Some(legacy) = legacy_config_path() {
+            match migrate_config(&legacy, &path) {
+                Ok(true) => log::info!("settings moved from {} to {}", legacy.display(), path.display()),
+                Ok(false) => {}
+                Err(e) => {
+                    // Read the old file this session rather than lose the user's settings.
+                    log::warn!("could not move settings from {}: {e}; reading them there", legacy.display());
+                    if legacy.exists() {
+                        read_from = legacy;
+                    }
+                }
+            }
+        }
         // A missing file is normal (first run); a parse failure means the file is
         // corrupt — warn so the user knows why their settings reset.
+        let path = read_from;
         let Ok(s) = std::fs::read_to_string(&path) else { return Self::default() };
         serde_json::from_str(&s).unwrap_or_else(|e| {
             log::warn!("failed to parse {}: {e}; resetting to defaults", path.display());
@@ -238,6 +304,9 @@ pub struct MonitorApp {
     prev_theme_id: ThemeId,
     /// Frames drawn since the last history tick — logged at debug to watch the repaint rate.
     frames_since_tick: u32,
+    /// Of those, frames drawn while a card animated, and frames with mouse/keyboard input.
+    frames_anim: u32,
+    frames_input: u32,
 
     /// Session-high watermarks — reset on app restart, used for peak ticks in compact mode.
     pub peak_cpu:    f32,
@@ -320,6 +389,8 @@ impl MonitorApp {
             startup_resize_pending: true,
             prev_theme_id: initial_theme_id,
             frames_since_tick: 0,
+            frames_anim: 0,
+            frames_input: 0,
             peak_cpu:    0.0,
             peak_mem:    0.0,
             peak_gpu:    0.0,
@@ -472,6 +543,7 @@ fn check_elevated() -> bool { true }
 
 impl eframe::App for MonitorApp {
     fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
+        pace_frame(ctx);
         // Clone card_vis once; use vis_snap for all read-only accesses this frame.
         let vis_snap = self.card_vis.lock().map(|v| v.clone()).unwrap_or_default();
 
@@ -625,12 +697,20 @@ impl eframe::App for MonitorApp {
 
         // Gate history pushes to match the background collector interval
         self.frames_since_tick += 1;
+        self.frames_anim += u32::from(any_anim);
+        self.frames_input += u32::from(ctx.input(|i| !i.events.is_empty() || i.pointer.is_moving()));
         if self.last_tick.elapsed() >= crate::collector::INTERVAL {
+            // What drove the rate: an animation, input, or the Settings viewport being open.
             log::debug!(
-                "ui: {:.1} frames/s",
-                self.frames_since_tick as f32 / self.last_tick.elapsed().as_secs_f32()
+                "ui: {:.1} frames/s ({} animating, {} with input, settings {})",
+                self.frames_since_tick as f32 / self.last_tick.elapsed().as_secs_f32(),
+                self.frames_anim,
+                self.frames_input,
+                if self.show_about { "open" } else { "closed" }
             );
             self.frames_since_tick = 0;
+            self.frames_anim = 0;
+            self.frames_input = 0;
             self.tick_histories(&snap, &fps_snap, &ping_snap);
             self.last_tick = std::time::Instant::now();
         }
@@ -668,6 +748,17 @@ mod tests {
     }
 
     #[test]
+    fn back_to_back_frames_are_paced_but_ambient_ones_are_not() {
+        let ctx = Context::default();
+        pace_frame(&ctx);
+        let t = std::time::Instant::now();
+        pace_frame(&ctx);
+        assert!(t.elapsed() >= MIN_FRAME * 9 / 10, "second frame came after {:?}", t.elapsed());
+        // An ambient frame is already further apart than MIN_FRAME, so it never sleeps.
+        assert!(AMBIENT_REPAINT.saturating_sub(MIN_FRAME) > MIN_FRAME);
+    }
+
+    #[test]
     fn write_atomic_replaces_the_file_and_leaves_no_temp() {
         let dir = scratch_dir("atomic");
         let path = dir.join("config.json");
@@ -675,6 +766,25 @@ mod tests {
         write_atomic(&path, "two").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "two");
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "temp file left behind");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn migration_replaces_the_stale_config_and_runs_once() {
+        let dir = scratch_dir("migrate");
+        let legacy = dir.join("BCComputerMonitor").join("config.json");
+        let path = dir.join("BSComputerMonitor").join("config.json");
+        write_atomic(&legacy, "live").unwrap();
+        write_atomic(&path, "stale from June").unwrap();
+
+        assert!(migrate_config(&legacy, &path).unwrap());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "live");
+        assert!(!legacy.exists());
+        assert!(legacy.with_file_name("config.json.migrated").exists(), "kept as a backup");
+
+        write_atomic(&path, "edited after the move").unwrap();
+        assert!(!migrate_config(&legacy, &path).unwrap(), "second run is a no-op");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "edited after the move");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -1,3 +1,6 @@
+// Author  : Sean Ryan <seanmryan@gmail.com>
+// Company : BagPipes
+
 //! Custom frameless title bar with drag, minimise, and close controls.
 
 use std::sync::{Arc, Mutex};

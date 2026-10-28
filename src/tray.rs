@@ -1,3 +1,6 @@
+// Author  : Sean Ryan <seanmryan@gmail.com>
+// Company : BagPipes
+
 //! Windows system tray icon — live stats tooltip, right-click Exit / Show.
 
 use std::sync::mpsc;

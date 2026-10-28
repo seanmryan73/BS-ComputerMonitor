@@ -1,3 +1,6 @@
+// Author  : Sean Ryan <seanmryan@gmail.com>
+// Company : BagPipes
+
 //! Background latency-measurement thread.
 //!
 //! Sends ICMP echo requests to a user-configurable target (default 1.1.1.1) every

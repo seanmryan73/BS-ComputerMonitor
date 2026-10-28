@@ -1,3 +1,6 @@
+// Author  : Sean Ryan <seanmryan@gmail.com>
+// Company : BagPipes
+
 //! FPS counter — ETW-based when admin (counts every DXGI Present_Stop), WGC
 //! fallback when not (counts DWM-composed frames, capped to monitor refresh).
 

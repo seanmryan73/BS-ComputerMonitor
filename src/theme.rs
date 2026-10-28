@@ -1,3 +1,6 @@
+// Author  : Sean Ryan <seanmryan@gmail.com>
+// Company : BagPipes
+
 //! Colour palette and egui style configuration.
 
 use egui::{Color32, Margin, Rounding, Stroke, Visuals};

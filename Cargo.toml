@@ -1,6 +1,6 @@
 [package]
 name = "bc-computer-monitor"
-version = "2026.1024.0"   # YYYY.MMDD.N (vault Author-Version-Standards § Software)
+version = "2026.1028.0"   # YYYY.MMDD.N (vault Author-Version-Standards § Software)
 publish = false   # private app; lets cargo-deny skip its own licence field
 edition = "2021"
 rust-version = "1.96"
@@ -47,6 +47,7 @@ windows = { version = "0.57", features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_System_Diagnostics_Etw",
+    "Win32_System_EventLog",   # why the last session ended (logging.rs)
     "Win32_System_Time",
     "Win32_System_Performance",
     "Win32_System_Threading",

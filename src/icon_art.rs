@@ -1,3 +1,6 @@
+// Author  : Sean Ryan <seanmryan@gmail.com>
+// Company : BagPipes
+
 // Shared pixel-art generator for the app icon: window/taskbar icon
 // (src/main.rs), system tray icon (src/tray.rs), and the embedded .ico
 // resource (build.rs, via `include!` — build scripts can't depend on the
